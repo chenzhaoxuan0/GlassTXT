@@ -1,0 +1,63 @@
+using System.Runtime.InteropServices;
+
+namespace GlassTXT;
+
+internal static class NativeMethods
+{
+    public const int GWL_EXSTYLE = -20;
+    public const int WS_EX_TRANSPARENT = 0x00000020;
+    public const int WM_NCLBUTTONDOWN = 0x00A1;
+    public const int HT_CAPTION = 0x0002;
+
+    public const uint MOD_ALT = 0x0001;
+    public const uint MOD_CONTROL = 0x0002;
+    public const uint MOD_SHIFT = 0x0004;
+    public const uint MOD_WIN = 0x0008;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    public static void ModifyExStyle(IntPtr hwnd, int add, int remove)
+    {
+        uint style = (uint)GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+        style = (style | (uint)add) & ~(uint)remove;
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr((long)style));
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [DllImport("user32.dll")]
+    public static extern short GetKeyState(int vk);
+
+    public static bool IsWinKeyDown()
+        => (GetKeyState(0x5B /* VK_LWIN */) & 0x8000) != 0
+           || (GetKeyState(0x5C /* VK_RWIN */) & 0x8000) != 0;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MultiByteToWideChar(uint codePage, uint flags,
+        byte[] src, int srcLen, char[]? dest, int destLen);
+
+    /// <summary>按 GBK（代码页 936）解码，无需注册 Encoding 提供程序。</summary>
+    public static string GbkToString(byte[] bytes)
+    {
+        int len = MultiByteToWideChar(936, 0x8 /* MB_ERR_INVALID_CHARS */, bytes, bytes.Length, null, 0);
+        if (len <= 0) len = MultiByteToWideChar(936, 0, bytes, bytes.Length, null, 0);
+        if (len <= 0) return Encoding.UTF8.GetString(bytes);
+        var buffer = new char[len];
+        MultiByteToWideChar(936, 0, bytes, bytes.Length, buffer, len);
+        return new string(buffer);
+    }
+}

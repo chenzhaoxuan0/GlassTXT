@@ -9,6 +9,8 @@
 看不到的：标题栏 / 菜单栏 / 任务栏项 / 保存按钮
 ```
 
+![GlassTXT：漂浮在桌面上的玻璃便签](docs/screenshot.png)
+
 ## 快速开始
 
 1. 双击 `publish\GlassTXT.exe`
@@ -102,13 +104,19 @@ GlassTXT.csproj      项目文件（net10.0-windows + WinForms）
 Program.cs           入口：默认文件解析、单实例转发、异常日志
 App.cs               应用状态：玻璃列表、穿透/显隐/回正、命名管道 IPC
 GlassForm.cs         玻璃窗口：无边框、拖动缩放、自动保存、外部修改监听、拖拽
-SettingsForm.cs      设置页：取色、透明度、字体、热键捕获、自启
+                     └ GlassTextBox：滚轮逐行滚动、中键自动滚动、Ctrl+滚轮缩放
+SettingsForm.cs      设置页：取色、透明度、缩放、字体、热键捕获、自启
 TrayController.cs    托盘图标与菜单
 HotkeyWindow.cs      全局热键注册（RegisterHotKey）
 Hotkey.cs            热键文本与按键参数互转
+Overlays.cs          穿透小浮层（缩放倍率徽标）
 Config.cs            配置读写、取色工具、开机自启
 TextFile.cs          txt 读写（UTF-8/BOM/GBK → UTF-8）
-NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、GBK 解码
+NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、滚动、GBK 解码
 docs/adr/            重要决策记录
 CONTEXT.md           术语表
 ```
+
+## 开源许可
+
+[MIT](LICENSE) © 2026 chenzhaoxuan0 —— 欢迎自由使用、修改与分发。

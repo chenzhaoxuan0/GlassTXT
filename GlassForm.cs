@@ -15,7 +15,7 @@ internal sealed class GlassForm : Form
     public string FilePath { get; }
     public bool ClickThrough { get; private set; }
 
-    private readonly TextBox _box;
+    private readonly GlassTextBox _box;
     private readonly Panel _dragStrip;
     private readonly Timer _saveTimer;
     private readonly Timer _reloadTimer;
@@ -23,6 +23,7 @@ internal sealed class GlassForm : Form
     private readonly FileSystemWatcher _watcher;
     private DateTime _suppressWatchUntil = DateTime.MinValue;
     private Point _boxDragPoint;
+    private ZoomBadge? _zoomBadge;
     private bool _loading;
     private bool _saveWarned;
 
@@ -89,6 +90,14 @@ internal sealed class GlassForm : Form
             _saveTimer.Start();
         };
 
+        // Ctrl+滚轮：调整全局缩放，并在玻璃上方显示倍率徽标
+        _box.ZoomRequested += notches =>
+        {
+            int before = App.Config.Appearance.ZoomPercent;
+            App.AdjustZoom(notches * 10);
+            if (App.Config.Appearance.ZoomPercent != before) ShowZoomBadge();
+        };
+
         MouseDown += FormMouseDown;
         _box.MouseDown += (_, e) => _boxDragPoint = e.Location;
         _box.MouseMove += BoxMouseMove;
@@ -119,7 +128,7 @@ internal sealed class GlassForm : Form
         _watcher.Error += (_, _) => ScheduleReloadCheck();
         _watcher.EnableRaisingEvents = true;
 
-        Deactivate += (_, _) => FlushSave();
+        Deactivate += (_, _) => { FlushSave(); _box.StopAutoScrollIfActive(); };
         LocationChanged += (_, _) => _layoutTimer.Start();
         Resize += (_, _) => _layoutTimer.Start();
         Shown += (_, _) => EnsureOnScreen();
@@ -135,12 +144,23 @@ internal sealed class GlassForm : Form
         // 文字不透明度独立于玻璃：把文字颜色向玻璃色按比例混合，
         // 视觉上等价于文字以单独的透明度叠在玻璃上，且不影响整窗的玻璃透明度
         double textAlpha = Math.Clamp(a.TextOpacityPercent, 10, 100) / 100.0;
+        // 缩放：以设置里的字号为 100% 基准的全局放大/缩小
+        int zoom = Math.Clamp(a.ZoomPercent, 50, 300);
+        float fontSize = (float)Math.Max(6, a.FontSize * zoom / 100.0);
         BackColor = glass;
         Opacity = Math.Clamp(a.OpacityPercent, 10, 100) / 100.0;
         _dragStrip.BackColor = glass;
         _box.BackColor = glass;
         _box.ForeColor = ColorUtil.Blend(glass, fontColor, textAlpha);
-        _box.Font = new Font(a.FontName, a.FontSize, FontStyle.Regular, GraphicsUnit.Point);
+        _box.Font = new Font(a.FontName, fontSize, FontStyle.Regular, GraphicsUnit.Point);
+    }
+
+    private void ShowZoomBadge()
+    {
+        _zoomBadge ??= new ZoomBadge();
+        int zoom = Math.Clamp(App.Config.Appearance.ZoomPercent, 50, 300);
+        var topCenter = PointToScreen(new Point(Width / 2, 52));
+        _zoomBadge.ShowAt(topCenter, $"缩放 {zoom}%");
     }
 
     // ---- 穿透 ----
@@ -348,6 +368,7 @@ internal sealed class GlassForm : Form
         _saveTimer.Dispose();
         _reloadTimer.Dispose();
         _layoutTimer.Dispose();
+        _zoomBadge?.Dispose();
         App.Glasses.Remove(this);
         if (App.Glasses.Count == 0)
             App.Shutdown(); // 最后一块玻璃关闭 = 整体退出，托盘图标一并移除，不留残留
@@ -355,39 +376,165 @@ internal sealed class GlassForm : Form
 }
 
 /// <summary>
-/// 无滚动条的文本框：Win32 EDIT 控件在没有滚动条时会直接忽略滚轮消息，
-/// 这里自己接手，用 EM_SCROLL(SB_LINEUP/SB_LINEDOWN) 精确按行滚动。
-/// 注意不能用 EM_LINESCROLL——它在无滚动条的 EDIT 上会无视行数直接滚到内容末尾。
+/// 无滚动条的文本框：
+/// - 滚轮：Win32 EDIT 控件在没有滚动条时会直接忽略滚轮消息，这里自己接手，
+///   用 EM_SCROLL(SB_LINEUP/SB_LINEDOWN) 精确按行滚动。
+///   注意不能用 EM_LINESCROLL——它在无滚动条的 EDIT 上会无视行数直接滚到内容末尾。
+/// - 中键：浏览器式自动滚动。按一下出现锚点，上下移动鼠标持续滚动，任意点击/Esc 退出。
+/// - Ctrl+滚轮：触发 ZoomRequested 事件，由宿主玻璃调整缩放并显示倍率。
 /// </summary>
 internal sealed class GlassTextBox : TextBox
 {
     private const int WmMouseWheel = 0x020A;
     private const int WmWheelDelta = 120;
+    private const int MkControl = 0x0008;
     private const int EmScroll = 0x00B5;
     private const int SbLineUp = 0;
     private const int SbLineDown = 1;
     private const int LinesPerNotch = 3;
+    private const int AutoScrollTickMs = 30;
 
+    private readonly Timer _autoScrollTimer;
+    private Cursor _cursorBeforeAutoScroll = Cursors.IBeam;
+    private Point _autoScrollAnchor;
+    private Point _autoScrollOffset;
+    private bool _autoScrolling;
+    private double _autoScrollCarry;
     private int _wheelAccum;
+
+    /// <summary>Ctrl+滚轮触发：参数为滚过的格数（带符号，向上为正）。</summary>
+    public event Action<int>? ZoomRequested;
+
+    public GlassTextBox()
+    {
+        _autoScrollTimer = new Timer { Interval = AutoScrollTickMs, Enabled = false };
+        _autoScrollTimer.Tick += (_, _) => AutoScrollTick();
+    }
+
+    private bool CtrlDownInWheel(Message m) => ((long)m.WParam & MkControl) != 0;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _autoScrollTimer.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == WmMouseWheel)
         {
-            // 累积增量（平滑滚轮一次只报一小格），单条消息最多算 2 格：
-            // 高分辨率/自由滚轮会一次性报很大的 delta，不封顶就会一次跨太多行
+            bool ctrl = CtrlDownInWheel(m);
             _wheelAccum += (short)((long)m.WParam >> 16);
             int notches = _wheelAccum / WmWheelDelta;
             if (notches != 0)
             {
                 _wheelAccum -= notches * WmWheelDelta;
                 notches = Math.Clamp(notches, -2, 2);
-                uint cmd = notches > 0 ? (uint)SbLineUp : (uint)SbLineDown; // 滚轮向上 = 回卷内容
-                for (int i = 0; i < Math.Abs(notches * LinesPerNotch); i++)
-                    NativeMethods.SendMessage(Handle, EmScroll, (IntPtr)cmd, IntPtr.Zero);
+                if (ctrl)
+                {
+                    ZoomRequested?.Invoke(notches);
+                }
+                else
+                {
+                    uint cmd = notches > 0 ? (uint)SbLineUp : (uint)SbLineDown; // 滚轮向上 = 回卷内容
+                    for (int i = 0; i < Math.Abs(notches * LinesPerNotch); i++)
+                        NativeMethods.SendMessage(Handle, EmScroll, (IntPtr)cmd, IntPtr.Zero);
+                }
             }
             return;
         }
         base.WndProc(ref m);
     }
+
+    // ---- 中键自动滚动 ----
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        if (_autoScrolling)
+        {
+            StopAutoScroll();
+            return; // 退出自动滚动的那次点击不落到文本上
+        }
+        if (e.Button == MouseButtons.Middle)
+        {
+            StartAutoScroll(e.Location);
+            return;
+        }
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        if (_autoScrolling)
+        {
+            _autoScrollOffset = e.Location;
+            return;
+        }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        if (_autoScrolling) return; // 中键抬起不退出，保持浏览器式模式
+        base.OnMouseUp(e);
+    }
+    // 注意：不要在 OnMouseCaptureChanged 里停止自动滚动——
+    // WmMouseUp 在 OnMouseUp 之后会框架级强制 Capture=false，捕获由 AutoScrollTick 自行夺回
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (_autoScrolling && keyData == Keys.Escape)
+        {
+            StopAutoScroll();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void StartAutoScroll(Point anchor)
+    {
+        _autoScrolling = true;
+        _autoScrollAnchor = anchor;
+        _autoScrollOffset = anchor;
+        _autoScrollCarry = 0;
+        _cursorBeforeAutoScroll = Cursor;
+        Cursor = Cursors.SizeAll; // 模式反馈：变成移动十字光标
+        Capture = true;
+        _autoScrollTimer.Start();
+    }
+
+    private void AutoScrollTick()
+    {
+        if (!_autoScrolling) return;
+        if (!Capture) Capture = true; // WmMouseUp 释放过捕获，这里持续夺回，保证指针在玻璃外也能滚
+        // 距锚点每约 2 倍行高滚 1 行，带小数累积；锚点上方为向上滚
+        double lines = _autoScrollOffset.Y / (Font.Height * 2.0);
+        _autoScrollCarry += lines;
+        int whole = Math.Clamp((int)_autoScrollCarry, -10, 10);
+        if (whole == 0) return;
+        _autoScrollCarry -= whole;
+        ScrollByLines(whole);
+    }
+
+    private void ScrollByLines(int lines)
+    {
+        uint cmd = lines > 0 ? (uint)SbLineDown : (uint)SbLineUp;
+        for (int i = 0; i < Math.Abs(lines); i++)
+            NativeMethods.SendMessage(Handle, EmScroll, (IntPtr)cmd, IntPtr.Zero);
+    }
+
+    private void StopAutoScroll()
+    {
+        if (!_autoScrolling) return;
+        _autoScrolling = false;
+        _autoScrollTimer.Stop();
+        Cursor = _cursorBeforeAutoScroll;
+        Capture = false;
+    }
+
+    /// <summary>供玻璃在失焦/隐藏时收尾。</summary>
+    public void StopAutoScrollIfActive() => StopAutoScroll();
 }

@@ -24,6 +24,8 @@ internal sealed class SettingsForm : Form
         DropDownStyle = ComboBoxStyle.DropDownList, Width = 220, DropDownWidth = 280,
     };
     private readonly NumericUpDown _fontSize = new() { Minimum = 8, Maximum = 72, Width = 90 };
+    private readonly NumericUpDown _zoom = new() { Minimum = 50, Maximum = 300, Increment = 10, Width = 90 };
+    private readonly Label _zoomVal = MakeHex();
     private readonly TextBox _hotkeyBox = new()
     {
         ReadOnly = true, Width = 220,
@@ -43,7 +45,7 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(500, 522);
+        ClientSize = new Size(500, 556);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
@@ -88,6 +90,7 @@ internal sealed class SettingsForm : Form
         Row("字体颜色", SwatchRow(_fontColorBtn, _fontColorHex));
         Row("字体", _fontBox);
         Row("字号", _fontSize);
+        Row("缩放比例", ZoomRow());
 
         Heading("行为");
         Row("穿透热键", _hotkeyBox);
@@ -110,6 +113,7 @@ internal sealed class SettingsForm : Form
         _glassOpacityBar.Value = Math.Clamp(a.OpacityPercent, 10, 100);
         _textOpacityBar.Value = Math.Clamp(a.TextOpacityPercent, 10, 100);
         _fontSize.Value = Math.Clamp(a.FontSize, 8, 72);
+        _zoom.Value = Math.Clamp(a.ZoomPercent, 50, 300);
         foreach (var family in new System.Drawing.Text.InstalledFontCollection().Families.Select(f => f.Name))
             _fontBox.Items.Add(family);
         if (!_fontBox.Items.Contains(a.FontName)) _fontBox.Items.Add(a.FontName);
@@ -147,6 +151,11 @@ internal sealed class SettingsForm : Form
         _fontSize.ValueChanged += (_, _) =>
         {
             App.Config.Appearance.FontSize = (int)_fontSize.Value;
+            ApplyAppearanceChanges();
+        };
+        _zoom.ValueChanged += (_, _) =>
+        {
+            App.Config.Appearance.ZoomPercent = (int)_zoom.Value;
             ApplyAppearanceChanges();
         };
         _lockBox.CheckedChanged += (_, _) =>
@@ -231,6 +240,20 @@ internal sealed class SettingsForm : Form
         App.SaveConfig();
     }
 
+    private FlowLayoutPanel ZoomRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 5, 3, 3),
+        };
+        panel.Controls.Add(_zoom);
+        panel.Controls.Add(new Label { Text = "  %（也可用 Ctrl+滚轮实时调整）", AutoSize = true, Anchor = AnchorStyles.Left });
+        return panel;
+    }
+
     private void RefreshVisuals()
     {
         var glass = ColorUtil.Parse(App.Config.Appearance.GlassColor, Color.Black);
@@ -241,6 +264,7 @@ internal sealed class SettingsForm : Form
         _fontColorHex.Text = ColorUtil.ToHex(font);
         _glassOpacityVal.Text = _glassOpacityBar.Value + "%";
         _textOpacityVal.Text = _textOpacityBar.Value + "%";
+        _zoomVal.Text = _zoom.Value + "%";
     }
 
     private void HotkeyKeyDown(object? sender, KeyEventArgs e)

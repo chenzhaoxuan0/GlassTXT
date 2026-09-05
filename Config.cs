@@ -12,6 +12,7 @@ public sealed class AppearanceSettings
     public string FontColor { get; set; } = "#F2F2F2";
     public string FontName { get; set; } = "微软雅黑";
     public int FontSize { get; set; } = 14;
+    public int ZoomPercent { get; set; } = 100;
 }
 
 public sealed class BehaviorSettings

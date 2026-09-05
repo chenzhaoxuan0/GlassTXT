@@ -42,6 +42,16 @@ internal static class App
         foreach (var g in Glasses) g.ApplyAppearance();
     }
 
+    /// <summary>调整全局缩放比例（百分比增量），作用于所有玻璃并立即持久化。</summary>
+    public static void AdjustZoom(int deltaPercent)
+    {
+        int value = Math.Clamp(Config.Appearance.ZoomPercent + deltaPercent, 50, 300);
+        if (value == Config.Appearance.ZoomPercent) return;
+        Config.Appearance.ZoomPercent = value;
+        ApplyAppearanceToAll();
+        SaveConfig();
+    }
+
     public static void ToggleClickThroughAll()
     {
         bool anyOn = Glasses.Any(g => g.ClickThrough);

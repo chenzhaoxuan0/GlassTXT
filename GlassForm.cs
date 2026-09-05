@@ -8,6 +8,7 @@ namespace GlassTXT;
 internal sealed class GlassForm : Form
 {
     private const int WmNcHitTest = 0x0084;
+    private const int WmMouseWheel = 0x020A;
     private const int GripPx = 6;
     private const int DragStripHeight = 32;
 
@@ -41,13 +42,13 @@ internal sealed class GlassForm : Form
         DoubleBuffered = true;
         AllowDrop = true;
 
-        _box = new TextBox
+        _box = new GlassTextBox
         {
             Multiline = true,
             Dock = DockStyle.Fill,
             BorderStyle = BorderStyle.None,
             WordWrap = true,
-            ScrollBars = ScrollBars.None, // 无滚动条；滚轮、方向键、翻页键照常滚动
+            ScrollBars = ScrollBars.None, // 无滚动条；滚轮由 GlassTextBox 接管
             AcceptsTab = true,
             HideSelection = false,
             AllowDrop = true,
@@ -232,6 +233,12 @@ internal sealed class GlassForm : Form
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == WmMouseWheel && _box.IsHandleCreated)
+        {
+            // 焦点或悬停在拖动区/空白圈上时，滚轮也转给文本框
+            NativeMethods.SendMessage(_box.Handle, WmMouseWheel, m.WParam, m.LParam);
+            return;
+        }
         if (m.Msg == WmNcHitTest)
         {
             base.WndProc(ref m);
@@ -342,5 +349,45 @@ internal sealed class GlassForm : Form
         _reloadTimer.Dispose();
         _layoutTimer.Dispose();
         App.Glasses.Remove(this);
+        if (App.Glasses.Count == 0)
+            App.Shutdown(); // 最后一块玻璃关闭 = 整体退出，托盘图标一并移除，不留残留
+    }
+}
+
+/// <summary>
+/// 无滚动条的文本框：Win32 EDIT 控件在没有滚动条时会直接忽略滚轮消息，
+/// 这里自己接手，用 EM_SCROLL(SB_LINEUP/SB_LINEDOWN) 精确按行滚动。
+/// 注意不能用 EM_LINESCROLL——它在无滚动条的 EDIT 上会无视行数直接滚到内容末尾。
+/// </summary>
+internal sealed class GlassTextBox : TextBox
+{
+    private const int WmMouseWheel = 0x020A;
+    private const int WmWheelDelta = 120;
+    private const int EmScroll = 0x00B5;
+    private const int SbLineUp = 0;
+    private const int SbLineDown = 1;
+    private const int LinesPerNotch = 3;
+
+    private int _wheelAccum;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmMouseWheel)
+        {
+            // 累积增量（平滑滚轮一次只报一小格），单条消息最多算 2 格：
+            // 高分辨率/自由滚轮会一次性报很大的 delta，不封顶就会一次跨太多行
+            _wheelAccum += (short)((long)m.WParam >> 16);
+            int notches = _wheelAccum / WmWheelDelta;
+            if (notches != 0)
+            {
+                _wheelAccum -= notches * WmWheelDelta;
+                notches = Math.Clamp(notches, -2, 2);
+                uint cmd = notches > 0 ? (uint)SbLineUp : (uint)SbLineDown; // 滚轮向上 = 回卷内容
+                for (int i = 0; i < Math.Abs(notches * LinesPerNotch); i++)
+                    NativeMethods.SendMessage(Handle, EmScroll, (IntPtr)cmd, IntPtr.Zero);
+            }
+            return;
+        }
+        base.WndProc(ref m);
     }
 }

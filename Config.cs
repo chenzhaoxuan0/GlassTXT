@@ -8,6 +8,7 @@ public sealed class AppearanceSettings
 {
     public string GlassColor { get; set; } = "#101418";
     public int OpacityPercent { get; set; } = 78;
+    public int TextOpacityPercent { get; set; } = 100;
     public string FontColor { get; set; } = "#F2F2F2";
     public string FontName { get; set; } = "微软雅黑";
     public int FontSize { get; set; } = 14;
@@ -98,6 +99,16 @@ internal static class ColorUtil
         if (string.IsNullOrWhiteSpace(text)) return fallback;
         try { return ColorTranslator.FromHtml(text.Trim()); }
         catch { return fallback; }
+    }
+
+    /// <summary>把前景色向背景色混合 t（0–1）：t=1 纯前景，t=0 完全隐入背景。</summary>
+    public static Color Blend(Color background, Color foreground, double t)
+    {
+        t = Math.Clamp(t, 0.0, 1.0);
+        return Color.FromArgb(
+            (int)Math.Round(background.R + (foreground.R - background.R) * t),
+            (int)Math.Round(background.G + (foreground.G - background.G) * t),
+            (int)Math.Round(background.B + (foreground.B - background.B) * t));
     }
 }
 

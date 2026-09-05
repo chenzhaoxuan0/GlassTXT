@@ -5,12 +5,18 @@ internal sealed class SettingsForm : Form
 {
     private readonly Button _glassColorBtn = MakeSwatch();
     private readonly Label _glassColorHex = MakeHex();
-    private readonly TrackBar _opacityBar = new()
+    private readonly TrackBar _glassOpacityBar = new()
     {
         Minimum = 10, Maximum = 100, TickStyle = TickStyle.None,
         SmallChange = 1, LargeChange = 5, Width = 210,
     };
-    private readonly Label _opacityVal = MakeHex();
+    private readonly Label _glassOpacityVal = MakeHex();
+    private readonly TrackBar _textOpacityBar = new()
+    {
+        Minimum = 10, Maximum = 100, TickStyle = TickStyle.None,
+        SmallChange = 1, LargeChange = 5, Width = 210,
+    };
+    private readonly Label _textOpacityVal = MakeHex();
     private readonly Button _fontColorBtn = MakeSwatch();
     private readonly Label _fontColorHex = MakeHex();
     private readonly ComboBox _fontBox = new()
@@ -37,7 +43,7 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(500, 486);
+        ClientSize = new Size(500, 522);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
@@ -77,7 +83,8 @@ internal sealed class SettingsForm : Form
 
         Heading("外观");
         Row("玻璃颜色", SwatchRow(_glassColorBtn, _glassColorHex));
-        Row("不透明度", OpacityRow());
+        Row("玻璃不透明度", SliderRow(_glassOpacityBar, _glassOpacityVal));
+        Row("文字不透明度", SliderRow(_textOpacityBar, _textOpacityVal));
         Row("字体颜色", SwatchRow(_fontColorBtn, _fontColorHex));
         Row("字体", _fontBox);
         Row("字号", _fontSize);
@@ -93,14 +100,15 @@ internal sealed class SettingsForm : Form
             MaximumSize = new Size(350, 0),
             ForeColor = Color.DimGray,
             Margin = new Padding(0, 10, 0, 0),
-            Text = "所有改动即时生效并自动保存。设置热键：点击热键输入框，直接按下想要的组合键；按退格键清除热键。若提示被占用，请换一个组合键。",
+            Text = "所有改动即时生效并自动保存。文字不透明度独立于玻璃：调低后文字变淡但玻璃保持不变。设置热键：点击热键输入框，直接按下想要的组合键；按退格键清除热键。若提示被占用，请换一个组合键。",
         });
 
         Controls.Add(table);
 
         // 初值
         var a = App.Config.Appearance;
-        _opacityBar.Value = Math.Clamp(a.OpacityPercent, 10, 100);
+        _glassOpacityBar.Value = Math.Clamp(a.OpacityPercent, 10, 100);
+        _textOpacityBar.Value = Math.Clamp(a.TextOpacityPercent, 10, 100);
         _fontSize.Value = Math.Clamp(a.FontSize, 8, 72);
         foreach (var family in new System.Drawing.Text.InstalledFontCollection().Families.Select(f => f.Name))
             _fontBox.Items.Add(family);
@@ -118,9 +126,14 @@ internal sealed class SettingsForm : Form
             PickColor(App.Config.Appearance.GlassColor, c => App.Config.Appearance.GlassColor = ColorUtil.ToHex(c));
         _fontColorBtn.Click += (_, _) =>
             PickColor(App.Config.Appearance.FontColor, c => App.Config.Appearance.FontColor = ColorUtil.ToHex(c));
-        _opacityBar.ValueChanged += (_, _) =>
+        _glassOpacityBar.ValueChanged += (_, _) =>
         {
-            App.Config.Appearance.OpacityPercent = _opacityBar.Value;
+            App.Config.Appearance.OpacityPercent = _glassOpacityBar.Value;
+            ApplyAppearanceChanges();
+        };
+        _textOpacityBar.ValueChanged += (_, _) =>
+        {
+            App.Config.Appearance.TextOpacityPercent = _textOpacityBar.Value;
             ApplyAppearanceChanges();
         };
         _fontBox.SelectedIndexChanged += (_, _) =>
@@ -182,7 +195,7 @@ internal sealed class SettingsForm : Form
         return panel;
     }
 
-    private FlowLayoutPanel OpacityRow()
+    private FlowLayoutPanel SliderRow(TrackBar bar, Label valueLabel)
     {
         var panel = new FlowLayoutPanel
         {
@@ -191,9 +204,9 @@ internal sealed class SettingsForm : Form
             WrapContents = false,
             Margin = new Padding(3, 5, 3, 3),
         };
-        _opacityBar.Margin = new Padding(0, 4, 8, 0);
-        panel.Controls.Add(_opacityBar);
-        panel.Controls.Add(_opacityVal);
+        bar.Margin = new Padding(0, 4, 8, 0);
+        panel.Controls.Add(bar);
+        panel.Controls.Add(valueLabel);
         return panel;
     }
 
@@ -226,7 +239,8 @@ internal sealed class SettingsForm : Form
         _glassColorHex.Text = ColorUtil.ToHex(glass);
         _fontColorBtn.BackColor = font;
         _fontColorHex.Text = ColorUtil.ToHex(font);
-        _opacityVal.Text = _opacityBar.Value + "%";
+        _glassOpacityVal.Text = _glassOpacityBar.Value + "%";
+        _textOpacityVal.Text = _textOpacityBar.Value + "%";
     }
 
     private void HotkeyKeyDown(object? sender, KeyEventArgs e)

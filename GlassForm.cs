@@ -2,17 +2,20 @@ namespace GlassTXT;
 
 /// <summary>
 /// 玻璃：无边框、置顶、半透明、可编辑 txt 的窗口。
-/// Alt+拖动 或 按住边缘空白圈拖动 = 移动；贴边 6px = 缩放；右键 = 小菜单。
+/// 顶部 32px 隐形拖动区 / Alt+拖动 / 按住边缘空白圈 = 移动；贴边 6px = 缩放；右键 = 小菜单。
+/// 无滚动条，滚轮与方向键直接滚动内容。
 /// </summary>
 internal sealed class GlassForm : Form
 {
     private const int WmNcHitTest = 0x0084;
     private const int GripPx = 6;
+    private const int DragStripHeight = 32;
 
     public string FilePath { get; }
     public bool ClickThrough { get; private set; }
 
     private readonly TextBox _box;
+    private readonly Panel _dragStrip;
     private readonly Timer _saveTimer;
     private readonly Timer _reloadTimer;
     private readonly Timer _layoutTimer;
@@ -44,12 +47,23 @@ internal sealed class GlassForm : Form
             Dock = DockStyle.Fill,
             BorderStyle = BorderStyle.None,
             WordWrap = true,
-            ScrollBars = ScrollBars.Vertical,
+            ScrollBars = ScrollBars.None, // 无滚动条；滚轮、方向键、翻页键照常滚动
             AcceptsTab = true,
             HideSelection = false,
             AllowDrop = true,
         };
         Controls.Add(_box);
+
+        // 顶部隐形拖动区：与玻璃同色，外观无任何变化，只多了一块好抓的移动区域
+        _dragStrip = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = DragStripHeight,
+            BackColor = Color.Black, // ApplyAppearance 会同步成玻璃色
+            Cursor = Cursors.SizeAll,
+        };
+        _dragStrip.MouseDown += StripMouseDown;
+        Controls.Add(_dragStrip);
 
         ApplyAppearance();
         RestoreOrCenterLayout();
@@ -86,6 +100,7 @@ internal sealed class GlassForm : Form
         menu.Items.Add("退出", null, (_, _) => Close());
         ContextMenuStrip = menu;
         _box.ContextMenuStrip = menu;
+        _dragStrip.ContextMenuStrip = menu;
 
         DragEnter += DragEnterFiles;
         DragDrop += DropFiles;
@@ -116,10 +131,14 @@ internal sealed class GlassForm : Form
         var a = App.Config.Appearance;
         Color glass = ColorUtil.Parse(a.GlassColor, Color.FromArgb(16, 20, 24));
         Color fontColor = ColorUtil.Parse(a.FontColor, Color.FromArgb(242, 242, 242));
+        // 文字不透明度独立于玻璃：把文字颜色向玻璃色按比例混合，
+        // 视觉上等价于文字以单独的透明度叠在玻璃上，且不影响整窗的玻璃透明度
+        double textAlpha = Math.Clamp(a.TextOpacityPercent, 10, 100) / 100.0;
         BackColor = glass;
         Opacity = Math.Clamp(a.OpacityPercent, 10, 100) / 100.0;
+        _dragStrip.BackColor = glass;
         _box.BackColor = glass;
-        _box.ForeColor = fontColor;
+        _box.ForeColor = ColorUtil.Blend(glass, fontColor, textAlpha);
         _box.Font = new Font(a.FontName, a.FontSize, FontStyle.Regular, GraphicsUnit.Point);
     }
 
@@ -185,6 +204,12 @@ internal sealed class GlassForm : Form
     // ---- 拖动 / 缩放 ----
 
     private void FormMouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left && !App.Config.Behavior.LockPosition)
+            BeginWindowDrag();
+    }
+
+    private void StripMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button == MouseButtons.Left && !App.Config.Behavior.LockPosition)
             BeginWindowDrag();

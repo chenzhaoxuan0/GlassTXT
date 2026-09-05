@@ -13,7 +13,7 @@ internal static class Program
         "[ ] 按 Ctrl+Alt+G 开关鼠标穿透\r\n" +
         "[ ] 托盘图标右键 → 设置… 可以换颜色、字体、热键\r\n" +
         "\r\n" +
-        "小抄：Alt+拖动=移动 ｜ 边缘=拉伸 ｜ 右键=菜单 ｜ 停止输入即自动保存\r\n";
+        "小抄：顶部区域=移动 ｜ 边缘=拉伸 ｜ 右键=菜单 ｜ 滚轮=翻动 ｜ 停止输入即自动保存\r\n";
 
     [STAThread]
     private static void Main(string[] args)

@@ -7,7 +7,9 @@ error.log
 publish*/
 docs/*
 !docs/screenshot.png
-!docs/settings.png
+!docs/screenshot2.png
+!docs/renwulan.png
+!docs/settings2.png
 CONTEXT.md
 config.json
 config.json.tmp

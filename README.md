@@ -15,6 +15,8 @@
 
 ![GlassTXT 使用示例：桌面玻璃中的待办清单](docs/screenshot.png)
 
+![GlassTXT 使用示例：浅色玻璃特写](docs/screenshot2.png)
+
 ## 1.4 更新
 
 - 新增**任务栏显示**：把玻璃中第 N–M 行待办以白色文字常驻任务栏，半透明底色贴合 TranslucentTB 的视觉效果
@@ -31,7 +33,7 @@
 
 ## 快速开始
 
-1. 从 [v1.3.0 Release](https://github.com/chenzhaoxuan0/GlassTXT/releases/tag/v1.3.0) 下载单个 `GlassTXT.exe`，放到有写入权限的文件夹后运行，无需 ZIP 或安装程序
+1. 从 [v1.4.0 Release](https://github.com/chenzhaoxuan0/GlassTXT/releases/tag/v1.4.0) 下载单个 `GlassTXT.exe`，放到有写入权限的文件夹后运行，无需 ZIP 或安装程序
    - 首次运行会在同目录生成 `todo.txt`（带示例内容）和 `config.json`
    - exe、todo.txt、config.json 永远待在一起——整个文件夹拷到别的电脑，配置跟着走
    - 需要 Windows x64 和 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0/runtime)（桌面运行时）
@@ -68,6 +70,8 @@
 在设置页勾选"在任务栏显示待办"后，玻璃里选定的行会以白色文字显示在任务栏上，
 半透明底色让文字像 TranslucentTB 处理过的任务栏一样融入系统。
 
+![GlassTXT 任务栏显示：白色待办文字常驻任务栏](docs/renwulan.png)
+
 - **显示内容**：可选"第 N 行 到 第 M 行"（从上往下数，含两端），玻璃内容一改任务栏立即同步
 - **内容来源**：默认取第一块玻璃；要固定某个文件，可在 `config.json` 里把 `Taskbar.File` 设为其完整路径
 - **位置**：启动时显示在任务栏**中间**（设置页可改为"系统托盘左侧 / 任务栏最左侧"），在任务栏上按住文字左右拖动可微调，位置会记住；右键菜单提供回正与隐藏；勾选"鼠标穿透"后整块区域点击穿透、位置固定
@@ -90,7 +94,7 @@
 
 ## 设置页（改动即时生效并自动保存）
 
-![GlassTXT 1.3 设置页：独立不透明度、数值输入及外观与行为分组](docs/settings.png)
+![GlassTXT 1.4 设置页：外观、行为与任务栏分组](docs/settings2.png)
 
 - **外观**（对所有玻璃全局生效）：玻璃颜色、玻璃不透明度 0%–100%、文字不透明度 0%–100%、字体颜色、字体、字号、缩放比例 50%–300%
 - **行为**：中键滚动模式（按住滚动 / 点一下持续滚动 / 关闭）、滚轮行数（1–10）、穿透热键（点击输入框后直接按组合键）、锁定位置（禁止拖动与缩放）、开机自启
@@ -154,7 +158,7 @@
 
 ## 源码结构
 
-仓库当前源码树只保留源码、测试源码、项目文件、构建脚本、图标、README、许可证及 README 使用的两张展示图片。配置、TXT、日志、编译产物、其他截图及本地方案文档不上传。可执行程序仅通过 Releases 分发。
+仓库当前源码树只保留源码、测试源码、项目文件、构建脚本、图标、README、许可证及 README 使用的展示图片（docs/）。配置、TXT、日志、编译产物、其他截图及本地方案文档不上传。可执行程序仅通过 Releases 分发。
 
 ```
 GlassTXT.csproj      项目文件（net10.0-windows + WinForms + WPF）
@@ -173,8 +177,10 @@ Config.cs            配置读写、取色工具、开机自启
 TextFile.cs          txt 读写（UTF-8/BOM/GBK → UTF-8）
 NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、滚动、GBK 解码
 tests/              Windows 集成回归与透明度像素检查
-docs/screenshot.png README 使用效果图
-docs/settings.png   README 设置页截图
+docs/screenshot.png    README 使用效果图
+docs/screenshot2.png   README 使用效果图（浅色特写）
+docs/renwulan.png      README 任务栏显示截图
+docs/settings2.png     README 设置页截图（含任务栏分组）
 ```
 
 ## 回归验证

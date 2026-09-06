@@ -156,6 +156,19 @@ internal sealed class GlassWindow : Window
         Content = _root;
 
         var menu = new ContextMenu();
+        var miCut = new MenuItem { Header = "剪切" };
+        miCut.Click += (_, _) => _box.Cut();
+        var miCopy = new MenuItem { Header = "复制" };
+        miCopy.Click += (_, _) => _box.Copy();
+        var miPaste = new MenuItem { Header = "粘贴" };
+        miPaste.Click += (_, _) => _box.Paste();
+        var miSelectAll = new MenuItem { Header = "全选" };
+        miSelectAll.Click += (_, _) => _box.SelectAll();
+        menu.Items.Add(miCut);
+        menu.Items.Add(miCopy);
+        menu.Items.Add(miPaste);
+        menu.Items.Add(miSelectAll);
+        menu.Items.Add(new Separator());
         var miSettings = new MenuItem { Header = "设置…" };
         miSettings.Click += (_, _) => App.ShowSettings();
         var miRecenter = new MenuItem { Header = "回正位置" };
@@ -169,6 +182,13 @@ internal sealed class GlassWindow : Window
         menu.Items.Add(miHide);
         menu.Items.Add(new Separator());
         menu.Items.Add(miExit);
+        menu.Opened += (_, _) =>
+        {
+            bool hasSelection = _box.SelectionLength > 0;
+            miCut.IsEnabled = hasSelection && !_box.IsReadOnly;
+            miCopy.IsEnabled = hasSelection;
+            miPaste.IsEnabled = !_box.IsReadOnly && ClipboardContainsText();
+        };
         ContextMenu = menu;
         _box.ContextMenu = menu;
         _strip.ContextMenu = menu;
@@ -215,6 +235,12 @@ internal sealed class GlassWindow : Window
                 FlushSave();
             }
         };
+    }
+
+    private static bool ClipboardContainsText()
+    {
+        try { return System.Windows.Clipboard.ContainsText(); }
+        catch { return false; }
     }
 
     // ---- 外观 / 行为 ----

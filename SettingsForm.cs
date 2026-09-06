@@ -51,14 +51,13 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(600, 720);
+        ClientSize = new Size(600, 800);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
         var table = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            AutoScroll = true,
             ColumnCount = 2,
             Padding = new Padding(14, 12, 14, 10),
         };
@@ -67,15 +66,28 @@ internal sealed class SettingsForm : Form
 
         void Heading(string text)
         {
-            var label = new Label
+            var heading = new Panel
             {
-                Text = text,
-                AutoSize = true,
-                Margin = new Padding(0, 10, 0, 2),
-                Font = new Font(SystemFonts.DialogFont, FontStyle.Bold),
+                Height = 30,
+                Dock = DockStyle.Top,
+                Margin = new Padding(0, 12, 0, 2),
+                BackColor = Color.Transparent,
             };
-            table.Controls.Add(label);
-            table.SetColumnSpan(label, 2);
+            heading.Paint += (_, e) =>
+            {
+                using var line = new Pen(Color.FromArgb(170, 88, 152, 245), 2);
+                e.Graphics.DrawLine(line, 0, heading.Height - 2, heading.Width, heading.Height - 2);
+            };
+            heading.Controls.Add(new Label
+            {
+                Text = text.ToUpperInvariant(),
+                AutoSize = true,
+                Location = new Point(0, 5),
+                ForeColor = Color.FromArgb(45, 70, 100),
+                Font = new Font(SystemFonts.DialogFont, FontStyle.Bold),
+            });
+            table.Controls.Add(heading);
+            table.SetColumnSpan(heading, 2);
         }
 
         void Row(string text, Control control)
@@ -109,10 +121,10 @@ internal sealed class SettingsForm : Form
         Row("", new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(350, 0),
+            MaximumSize = new Size(480, 0),
             ForeColor = Color.DimGray,
             Margin = new Padding(0, 10, 0, 0),
-            Text = "所有改动即时生效并自动保存。文字不透明度独立于玻璃：调低后文字变淡但玻璃保持不变。设置热键：点击热键输入框，直接按下想要的组合键；按退格键清除热键。若提示被占用，请换一个组合键。",
+            Text = "改动即时生效并自动保存。文字透明度独立于玻璃。点击热键框直接按组合键，按退格键清除；若注册失败，请更换组合键。",
         });
 
         Controls.Add(table);

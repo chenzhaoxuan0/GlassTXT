@@ -64,6 +64,10 @@ nonzero-alpha layer is added to intercept input.
   scrolling; toggle mode never repeatedly steals capture back.
 - Wheel handling is attached at the window, including the drag strip.
   Partial deltas accumulate, and Ctrl-wheel changes global zoom.
+- The glass context menu combines text editing commands (cut, copy, paste and
+  select all) with the existing glass commands. Editing commands are enabled
+  according to the current selection, read-only state and clipboard. The tray
+  menu remains a separate global-control menu because it has no text target.
 - Resize hit testing converts native screen coordinates with `PointFromScreen`.
 - Dirty text is saved after the debounce delay, on hide/deactivation and before
   closing. Closing does not depend on a later application-wide save.

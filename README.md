@@ -104,6 +104,7 @@
 
 ```
 GlassTXT.csproj      项目文件（net10.0-windows + WinForms）
+GlobalUsings.cs      全局 using
 Program.cs           入口：默认文件解析、单实例转发、异常日志
 App.cs               应用状态：玻璃列表、穿透/显隐/回正、命名管道 IPC
 GlassForm.cs         玻璃窗口：无边框、拖动缩放、自动保存、外部修改监听、拖拽
@@ -119,6 +120,10 @@ NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、滚动、GBK
 docs/adr/            重要决策记录
 CONTEXT.md           术语表
 ```
+
+## 下载
+
+前往 [Releases](https://github.com/chenzhaoxuan0/GlassTXT/releases) 下载编译好的 `GlassTXT.exe`（约 230 KB，需安装 [.NET 10 桌面运行时](https://dotnet.microsoft.com/download/dotnet/10.0/runtime)；自包含版可自行按上文命令编译）。
 
 ## 开源许可
 

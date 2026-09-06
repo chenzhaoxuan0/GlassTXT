@@ -111,6 +111,36 @@ internal static class Program
         App.SettingsWindow!.Close();
         glass.ShowAndActivate();
 
+        // ---- 任务栏显示（TranslucentTB 风格） ----
+        Check(TaskbarOverlay.SelectLines("1\n2\n3", 2, 3).SequenceEqual(new[] { "2", "3" }),
+            "Taskbar line-range selection is inclusive and clamped");
+        Check(TaskbarOverlay.SelectLines("only", 5, 9).Length == 0, "Out-of-range selection yields nothing");
+        App.Config.Taskbar.Enabled = true;
+        App.Config.Taskbar.StartLine = 1;
+        App.Config.Taskbar.EndLine = 2;
+        App.ApplyTaskbarSettings();
+        await Task.Delay(400);
+        var overlay = App.Taskbar!;
+        Check(overlay is Forms.Form { Visible: true }, "Taskbar overlay appears when enabled");
+        IntPtr tray = NativeMethods.FindWindow("Shell_TrayWnd", null);
+        Check(tray != IntPtr.Zero && NativeMethods.GetParent(overlay.Handle) == tray,
+            "Taskbar overlay embeds into Shell_TrayWnd");
+        Check(overlay.SourcePath == file, "Taskbar overlay reads the first glass by default");
+        box.Text = "AAA\r\nBBB\r\nCCC";
+        await Task.Delay(350);
+        Check(overlay.LinesShown.Length == 2 && overlay.LinesShown[0] == "AAA" && overlay.LinesShown[1] == "BBB",
+            "Taskbar overlay shows the configured line range");
+        Check(overlay.Width >= overlay.Height && overlay.Width > 0 && overlay.Height > 0,
+            "Taskbar overlay sizes itself to its content");
+        App.Config.Taskbar.StartLine = 5;
+        App.ApplyTaskbarSettings();
+        await Task.Delay(350);
+        Check(!overlay.Visible, "Selection outside the file hides the taskbar overlay");
+        App.Config.Taskbar.StartLine = 1;
+        App.Config.Taskbar.Enabled = false;
+        App.ApplyTaskbarSettings();
+        Check(!overlay.Visible, "Disabling the setting hides the taskbar overlay");
+
         box.Text = string.Join("\r\n", Enumerable.Range(1, 160).Select(i => $"Line {i:000} - scrolling fixture"));
         box.UpdateLayout();
         await Task.Delay(150);
@@ -228,8 +258,9 @@ internal static class Program
         var resolve = entry.GetMethod("ResolveFile", BindingFlags.Static | BindingFlags.NonPublic)!;
         var sample = (string)entry.GetField("SampleTodo", BindingFlags.Static | BindingFlags.NonPublic)!
             .GetRawConstantValue()!;
-        Check(sample.Contains("GlassTXT 1.3") && sample.Contains("Ctrl+Alt+G")
-            && sample.Contains("0%-100%"), "First-run template includes version and usage instructions");
+        Check(sample.Contains("GlassTXT 1.4") && sample.Contains("Ctrl+Alt+G")
+            && sample.Contains("0%-100%") && sample.Contains("任务栏"),
+            "First-run template includes version and usage instructions");
         var defaultPath = Path.Combine(AppContext.BaseDirectory, "todo.txt");
         var existing = File.Exists(defaultPath) ? File.ReadAllBytes(defaultPath) : null;
         var resolved = (string)resolve.Invoke(null, [Array.Empty<string>()])!;

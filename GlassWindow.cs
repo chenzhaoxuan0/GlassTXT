@@ -40,6 +40,9 @@ internal sealed class GlassWindow : Window
     public string FilePath { get; }
     public bool ClickThrough { get; private set; }
 
+    /// <summary>当前文本快照（任务栏浮层读取用）。</summary>
+    public string TextSnapshot => _box.Text;
+
     private readonly TextBox _box;
     private readonly Grid _strip;
     private readonly Grid _root;
@@ -114,6 +117,7 @@ internal sealed class GlassWindow : Window
         };
         _box.TextChanged += (_, _) =>
         {
+            App.NotifyTaskbarContentChanged(); // 外部改写（_loading 中）也要同步任务栏
             if (_loading) return;
             _dirty = true;
             _saveTimer.Stop();
@@ -657,6 +661,7 @@ internal sealed class GlassWindow : Window
         _zoomBadge?.Dispose();
         _source?.RemoveHook(WndProcHook);
         App.Glasses.Remove(this);
+        App.NotifyTaskbarContentChanged(); // 来源玻璃关闭后落到剩余第一块
         if (App.Glasses.Count == 0)
             App.Shutdown(); // 最后一块玻璃关闭 = 整体退出，托盘图标一并移除
     }

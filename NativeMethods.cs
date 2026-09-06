@@ -48,6 +48,91 @@ internal static class NativeMethods
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter,
         int x, int y, int width, int height, uint flags);
 
+    public const int GWL_STYLE = -16;
+    public const long WS_CHILD = 0x40000000;
+    public const long WS_POPUP = 0x80000000;
+    public const uint SWP_NOACTIVATE = 0x0010;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string? windowName);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetParent(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hwnd);
+
+    public delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr lParam);
+
+    /// <summary>取窗口所在显示器的 DPI；取不到时回退 96。</summary>
+    public static uint DpiForWindow(IntPtr hwnd)
+    {
+        try
+        {
+            uint dpi = GetDpiForWindow(hwnd);
+            return dpi >= 96 ? dpi : 96;
+        }
+        catch { return 96; }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ScreenToClient(IntPtr hwnd, ref Point pt);
+
+    // ---- UpdateLayeredWindow：32 位 ARGB 逐像素 alpha 浮层 ----
+
+    public const uint ULW_ALPHA = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativePoint { public int X, Y; public NativePoint(int x, int y) { X = x; Y = y; } }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeSize { public int Width, Height; public NativeSize(int w, int h) { Width = w; Height = h; } }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BlendFunction
+    {
+        public byte BlendOp;           // 0 = AC_SRC_OVER
+        public byte BlendFlags;
+        public byte SourceConstantAlpha;
+        public byte AlphaFormat;       // 1 = AC_SRC_ALPHA（按位 alpha 混合）
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref NativePoint dst,
+        ref NativeSize size, IntPtr hdcSrc, ref NativePoint src, uint crKey, ref BlendFunction blend, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetDC(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(IntPtr obj);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 

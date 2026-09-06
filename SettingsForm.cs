@@ -38,6 +38,24 @@ internal sealed class SettingsForm : Form
     private readonly Label _hotkeyStatus = new() { AutoSize = true, Margin = new Padding(3, 4, 3, 3) };
     private readonly CheckBox _lockBox = new() { AutoSize = true, Text = "锁定位置（禁止拖动与缩放）" };
     private readonly CheckBox _autoStartBox = new() { AutoSize = true, Text = "开机自启（当前用户）" };
+    private readonly CheckBox _taskbarEnabled = new() { AutoSize = true, Text = "在任务栏显示待办（白色文字，TranslucentTB 风格）" };
+    private readonly ComboBox _tbPosition = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, DropDownWidth = 170 };
+    private static readonly string[] PositionTokens = { "center", "tray", "left" };
+    private static readonly string[] PositionLabels = { "任务栏居中（默认，避开托盘）", "系统托盘左侧", "任务栏最左侧" };
+    private readonly NumericUpDown _tbStart = new() { Minimum = 1, Maximum = 99, Width = 60 };
+    private readonly NumericUpDown _tbEnd = new() { Minimum = 1, Maximum = 99, Width = 60 };
+    private readonly Button _tbBgBtn = MakeSwatch();
+    private readonly Label _tbBgHex = MakeHex();
+    private readonly TrackBar _tbBgBar = new()
+    {
+        Minimum = 0, Maximum = 100, TickStyle = TickStyle.None,
+        SmallChange = 1, LargeChange = 5, Width = 140,
+    };
+    private readonly NumericUpDown _tbBgInput = MakeOpacityInput("任务栏背景不透明度");
+    private readonly Button _tbTextBtn = MakeSwatch();
+    private readonly Label _tbTextHex = MakeHex();
+    private readonly NumericUpDown _tbFontSize = new() { Minimum = 7, Maximum = 24, Width = 60 };
+    private readonly CheckBox _tbClickThrough = new() { AutoSize = true, Text = "鼠标穿透任务栏显示（固定位置，不可拖动）" };
     private bool _loading = true;
 
     public SettingsForm()
@@ -45,13 +63,15 @@ internal sealed class SettingsForm : Form
         Text = "GlassTXT 设置";
         foreach (var label in MiddleScrollLabels)
             _middleScroll.Items.Add(label); // 必须先填选项，SelectedIndex 才能赋值
+        foreach (var label in PositionLabels)
+            _tbPosition.Items.Add(label);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(600, 800);
+        ClientSize = new Size(600, 905);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
@@ -127,6 +147,24 @@ internal sealed class SettingsForm : Form
             Text = "改动即时生效并自动保存。文字透明度独立于玻璃。点击热键框直接按组合键，按退格键清除；若注册失败，请更换组合键。",
         });
 
+        Heading("任务栏");
+        Row("", _taskbarEnabled);
+        Row("默认位置", _tbPosition);
+        Row("显示行数", TaskbarLineRow());
+        Row("背景", TaskbarBackgroundRow());
+        Row("文字", TaskbarTextRow());
+        Row("", _tbClickThrough);
+        Row("", new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(480, 0),
+            ForeColor = Color.DimGray,
+            Margin = new Padding(0, 10, 0, 0),
+            Text = "内容取自第一块玻璃（可在 config.json 的 Taskbar.File 指定其他文件）。" +
+                "默认位置会自动避开任务栏上已有的图标和工具（托盘、任务按钮、TrafficMonitor 等），挑最靠近中间的空隙；" +
+                "也可以左右拖动文字微调，右键可回正或隐藏。行数越多字号越小（有可读下限），实在放不下时只显示放得下的前几行。",
+        });
+
         Controls.Add(table);
 
         // 初值
@@ -147,6 +185,15 @@ internal sealed class SettingsForm : Form
         int modeIndex = Array.IndexOf(MiddleScrollTokens, App.Config.Behavior.MiddleScrollMode);
         _middleScroll.SelectedIndex = modeIndex >= 0 ? modeIndex : 0;
         _wheelLines.Value = Math.Clamp(App.Config.Behavior.WheelLinesPerNotch, 1, 10);
+        var tb = App.Config.Taskbar;
+        _taskbarEnabled.Checked = tb.Enabled;
+        _tbPosition.SelectedIndex = Math.Max(0, Array.IndexOf(PositionTokens, tb.Position));
+        _tbStart.Value = Math.Clamp(tb.StartLine, 1, 99);
+        _tbEnd.Value = Math.Clamp(Math.Max(tb.EndLine, tb.StartLine), 1, 99);
+        _tbBgBar.Value = Math.Clamp(tb.BackgroundOpacityPercent, 0, 100);
+        _tbBgInput.Value = _tbBgBar.Value;
+        _tbFontSize.Value = Math.Clamp(tb.FontSize, 7, 24);
+        _tbClickThrough.Checked = tb.ClickThrough;
         RefreshVisuals();
         _hotkeyStatus.Text = StatusText(App.LastHotkeyStatus, _hotkeyBox.Text, out var statusColor);
         _hotkeyStatus.ForeColor = statusColor;
@@ -207,6 +254,62 @@ internal sealed class SettingsForm : Form
         };
         _hotkeyBox.KeyDown += HotkeyKeyDown;
         _hotkeyBox.KeyPress += (_, e) => e.Handled = true;
+
+        _taskbarEnabled.CheckedChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Taskbar.Enabled = _taskbarEnabled.Checked;
+            ApplyTaskbarChanges();
+        };
+        _tbPosition.SelectedIndexChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Taskbar.Position = PositionTokens[Math.Max(0, _tbPosition.SelectedIndex)];
+            App.Config.Taskbar.OffsetX = 0; // 换锚点后旧偏移没有意义，回到默认停靠点
+            ApplyTaskbarChanges();
+        };
+        _tbStart.ValueChanged += (_, _) =>
+        {
+            if (_loading) return;
+            if (_tbStart.Value > _tbEnd.Value) _tbEnd.Value = _tbStart.Value;
+            App.Config.Taskbar.StartLine = (int)_tbStart.Value;
+            App.Config.Taskbar.EndLine = (int)_tbEnd.Value;
+            ApplyTaskbarChanges();
+        };
+        _tbEnd.ValueChanged += (_, _) =>
+        {
+            if (_loading) return;
+            if (_tbEnd.Value < _tbStart.Value) _tbStart.Value = _tbEnd.Value;
+            App.Config.Taskbar.StartLine = (int)_tbStart.Value;
+            App.Config.Taskbar.EndLine = (int)_tbEnd.Value;
+            ApplyTaskbarChanges();
+        };
+        _tbBgBtn.Click += (_, _) =>
+            PickTaskbarColor(App.Config.Taskbar.BackgroundColor,
+                c => App.Config.Taskbar.BackgroundColor = ColorUtil.ToHex(c));
+        _tbTextBtn.Click += (_, _) =>
+            PickTaskbarColor(App.Config.Taskbar.TextColor,
+                c => App.Config.Taskbar.TextColor = ColorUtil.ToHex(c));
+        _tbBgBar.ValueChanged += (_, _) =>
+        {
+            _tbBgInput.Value = _tbBgBar.Value;
+            if (_loading) return;
+            App.Config.Taskbar.BackgroundOpacityPercent = _tbBgBar.Value;
+            ApplyTaskbarChanges();
+        };
+        _tbBgInput.ValueChanged += (_, _) => _tbBgBar.Value = (int)_tbBgInput.Value;
+        _tbFontSize.ValueChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Taskbar.FontSize = (int)_tbFontSize.Value;
+            ApplyTaskbarChanges();
+        };
+        _tbClickThrough.CheckedChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Taskbar.ClickThrough = _tbClickThrough.Checked;
+            ApplyTaskbarChanges();
+        };
 
         FormClosed += (_, _) => App.SettingsWindow = null;
         _loading = false;
@@ -301,6 +404,26 @@ internal sealed class SettingsForm : Form
         App.SaveConfig();
     }
 
+    /// <summary>任务栏设置改动：刷新浮层并落盘。</summary>
+    private void ApplyTaskbarChanges()
+    {
+        RefreshVisuals();
+        App.ApplyTaskbarSettings();
+        App.SaveConfig();
+    }
+
+    private void PickTaskbarColor(string currentHtml, Action<Color> assign)
+    {
+        using var dialog = new ColorDialog
+        {
+            FullOpen = true,
+            Color = ColorUtil.Parse(currentHtml, Color.White),
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        assign(dialog.Color);
+        ApplyTaskbarChanges();
+    }
+
     private FlowLayoutPanel WheelLinesRow()
     {
         var panel = new FlowLayoutPanel
@@ -329,6 +452,59 @@ internal sealed class SettingsForm : Form
         return panel;
     }
 
+    private FlowLayoutPanel TaskbarLineRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 5, 3, 3),
+        };
+        panel.Controls.Add(new Label { Text = "第 ", AutoSize = true, Anchor = AnchorStyles.Left });
+        panel.Controls.Add(_tbStart);
+        panel.Controls.Add(new Label { Text = " 行  到  第 ", AutoSize = true, Anchor = AnchorStyles.Left });
+        panel.Controls.Add(_tbEnd);
+        panel.Controls.Add(new Label { Text = " 行", AutoSize = true, Anchor = AnchorStyles.Left });
+        return panel;
+    }
+
+    private FlowLayoutPanel TaskbarBackgroundRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 5, 3, 3),
+        };
+        _tbBgBar.Margin = new Padding(0, 4, 8, 0);
+        panel.Controls.Add(_tbBgBtn);
+        panel.Controls.Add(new Label { Text = " ", AutoSize = true });
+        panel.Controls.Add(_tbBgHex);
+        panel.Controls.Add(_tbBgBar);
+        panel.Controls.Add(_tbBgInput);
+        panel.Controls.Add(new Label { Text = "%", AutoSize = true, Anchor = AnchorStyles.Left });
+        return panel;
+    }
+
+    private FlowLayoutPanel TaskbarTextRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 5, 3, 3),
+        };
+        panel.Controls.Add(_tbTextBtn);
+        panel.Controls.Add(new Label { Text = " ", AutoSize = true });
+        panel.Controls.Add(_tbTextHex);
+        panel.Controls.Add(_tbFontSize);
+        panel.Controls.Add(new Label { Text = " pt（字体跟随玻璃）", AutoSize = true, Anchor = AnchorStyles.Left });
+        return panel;
+    }
+
     private void RefreshVisuals()
     {
         var glass = ColorUtil.Parse(App.Config.Appearance.GlassColor, Color.Black);
@@ -338,6 +514,13 @@ internal sealed class SettingsForm : Form
         _fontColorBtn.BackColor = font;
         _fontColorHex.Text = ColorUtil.ToHex(font);
         _zoomVal.Text = _zoom.Value + "%";
+        var tb = App.Config.Taskbar;
+        var tbBg = ColorUtil.Parse(tb.BackgroundColor, Color.FromArgb(31, 31, 31));
+        var tbText = ColorUtil.Parse(tb.TextColor, Color.White);
+        _tbBgBtn.BackColor = tbBg;
+        _tbBgHex.Text = ColorUtil.ToHex(tbBg);
+        _tbTextBtn.BackColor = tbText;
+        _tbTextHex.Text = ColorUtil.ToHex(tbText);
     }
 
     private void HotkeyKeyDown(object? sender, KeyEventArgs e)

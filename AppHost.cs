@@ -11,6 +11,7 @@ internal sealed class AppHost : ApplicationContext
         App.Hotkeys = new HotkeyWindow();
         App.ApplyHotkey(App.Config.Behavior.Hotkey);
         App.OpenGlass(file);
+        App.ApplyTaskbarSettings();
         App.StartPipeServer(pipeName);
     }
 

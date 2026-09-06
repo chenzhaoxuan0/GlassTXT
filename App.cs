@@ -14,6 +14,7 @@ internal static class App
     public static TrayController Tray = null!;
     public static HotkeyWindow Hotkeys = null!;
     public static SettingsForm? SettingsWindow;
+    public static TaskbarOverlay? Taskbar;
     public static Control Marshal = null!;
     public static string LastHotkeyStatus = "empty";
 
@@ -45,7 +46,25 @@ internal static class App
     public static void ApplyAppearanceToAll()
     {
         foreach (var g in Glasses) g.ApplyAppearance();
+        NotifyTaskbarContentChanged(); // 任务栏文字跟随玻璃字体
     }
+
+    /// <summary>按配置创建/更新/隐藏任务栏浮层（启动与设置页改动时调用）。</summary>
+    public static void ApplyTaskbarSettings()
+    {
+        if (Config.Taskbar.Enabled && Glasses.Count > 0)
+        {
+            Taskbar ??= new TaskbarOverlay();
+            Taskbar.ApplyConfig();
+        }
+        else
+        {
+            Taskbar?.HideOverlay();
+        }
+    }
+
+    /// <summary>玻璃内容变化后让任务栏浮层跟随刷新（内部会合并短时间内的多次请求）。</summary>
+    public static void NotifyTaskbarContentChanged() => Taskbar?.ScheduleRefresh();
 
     /// <summary>调整全局缩放比例（百分比增量），作用于所有玻璃并立即持久化。</summary>
     public static void AdjustZoom(int deltaPercent)
@@ -122,6 +141,8 @@ internal static class App
         foreach (var g in Glasses.ToArray())
             g.Close();
         SettingsWindow?.Close();
+        Taskbar?.Dispose();
+        Taskbar = null;
         SaveConfig();
         WinForms.Application.ExitThread();
     }

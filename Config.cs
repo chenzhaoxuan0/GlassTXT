@@ -26,6 +26,28 @@ public sealed class BehaviorSettings
     public int WheelLinesPerNotch { get; set; } = 3;
 }
 
+public sealed class TaskbarSettings
+{
+    public bool Enabled { get; set; } = false;
+    /// <summary>显示第几行到第几行（1 起算，闭区间）。</summary>
+    public int StartLine { get; set; } = 1;
+    public int EndLine { get; set; } = 3;
+    public string BackgroundColor { get; set; } = "#1F1F1F";
+    public int BackgroundOpacityPercent { get; set; } = 55;
+    public string TextColor { get; set; } = "#FFFFFF";
+    public int TextOpacityPercent { get; set; } = 100;
+    /// <summary>任务栏字号（pt），字体族跟随玻璃字体。</summary>
+    public int FontSize { get; set; } = 10;
+    /// <summary>true 时整块浮层鼠标穿透（固定位置，不可拖动）。</summary>
+    public bool ClickThrough { get; set; } = false;
+    /// <summary>默认停靠位置：center=任务栏居中（默认，避开托盘图标区）| tray=系统托盘左侧 | left=任务栏最左侧。</summary>
+    public string Position { get; set; } = "center";
+    /// <summary>相对默认停靠点再向左的偏移，物理像素；任务栏上拖动后自动记录。</summary>
+    public int OffsetX { get; set; } = 0;
+    /// <summary>内容来源文件；留空 = 第一块玻璃。</summary>
+    public string File { get; set; } = "";
+}
+
 public sealed class WindowLayout
 {
     public int X { get; set; }
@@ -38,6 +60,7 @@ public sealed class Config
 {
     public AppearanceSettings Appearance { get; set; } = new();
     public BehaviorSettings Behavior { get; set; } = new();
+    public TaskbarSettings Taskbar { get; set; } = new();
     public Dictionary<string, WindowLayout> Windows { get; set; } = new();
 
     [JsonIgnore]

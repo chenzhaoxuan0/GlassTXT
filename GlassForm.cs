@@ -380,7 +380,7 @@ internal sealed class GlassForm : Form
 /// - 滚轮：Win32 EDIT 控件在没有滚动条时会直接忽略滚轮消息，这里自己接手，
 ///   用 EM_SCROLL(SB_LINEUP/SB_LINEDOWN) 精确按行滚动。
 ///   注意不能用 EM_LINESCROLL——它在无滚动条的 EDIT 上会无视行数直接滚到内容末尾。
-/// - 中键：浏览器式自动滚动。按一下出现锚点，上下移动鼠标持续滚动，任意点击/Esc 退出。
+/// - 中键：按住中键上下拖动滚动（位移决定速度，带死区防抖），松开即停，不会失控。
 /// - Ctrl+滚轮：触发 ZoomRequested 事件，由宿主玻璃调整缩放并显示倍率。
 /// </summary>
 internal sealed class GlassTextBox : TextBox
@@ -393,6 +393,9 @@ internal sealed class GlassTextBox : TextBox
     private const int SbLineDown = 1;
     private const int LinesPerNotch = 3;
     private const int AutoScrollTickMs = 30;
+    private const int AutoScrollDeadZonePx = 16;   // 锚点死区：轻微手抖不滚动
+    private const int AutoScrollPxPerLine = 150;   // 每偏离锚点 150px = 每跳 1 行
+    private const int AutoScrollMaxLinesPerTick = 4;
 
     private readonly Timer _autoScrollTimer;
     private Cursor _cursorBeforeAutoScroll = Cursors.IBeam;
@@ -411,8 +414,6 @@ internal sealed class GlassTextBox : TextBox
         _autoScrollTimer.Tick += (_, _) => AutoScrollTick();
     }
 
-    private bool CtrlDownInWheel(Message m) => ((long)m.WParam & MkControl) != 0;
-
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -426,7 +427,7 @@ internal sealed class GlassTextBox : TextBox
     {
         if (m.Msg == WmMouseWheel)
         {
-            bool ctrl = CtrlDownInWheel(m);
+            bool ctrl = ((long)m.WParam & MkControl) != 0;
             _wheelAccum += (short)((long)m.WParam >> 16);
             int notches = _wheelAccum / WmWheelDelta;
             if (notches != 0)
@@ -449,14 +450,14 @@ internal sealed class GlassTextBox : TextBox
         base.WndProc(ref m);
     }
 
-    // ---- 中键自动滚动 ----
+    // ---- 中键按住滚动（松开即停）----
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
         if (_autoScrolling)
         {
             StopAutoScroll();
-            return; // 退出自动滚动的那次点击不落到文本上
+            return;
         }
         if (e.Button == MouseButtons.Middle)
         {
@@ -478,11 +479,19 @@ internal sealed class GlassTextBox : TextBox
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
-        if (_autoScrolling) return; // 中键抬起不退出，保持浏览器式模式
+        if (_autoScrolling && e.Button == MouseButtons.Middle)
+        {
+            StopAutoScroll(); // 松开中键立即停止
+            return;
+        }
         base.OnMouseUp(e);
     }
-    // 注意：不要在 OnMouseCaptureChanged 里停止自动滚动——
-    // WmMouseUp 在 OnMouseUp 之后会框架级强制 Capture=false，捕获由 AutoScrollTick 自行夺回
+
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        if (_autoScrolling) StopAutoScroll(); // 按住模式：捕获丢失即停止
+        base.OnMouseCaptureChanged(e);
+    }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
@@ -501,7 +510,7 @@ internal sealed class GlassTextBox : TextBox
         _autoScrollOffset = anchor;
         _autoScrollCarry = 0;
         _cursorBeforeAutoScroll = Cursor;
-        Cursor = Cursors.SizeAll; // 模式反馈：变成移动十字光标
+        Cursor = Cursors.SizeNS; // 上下双向箭头光标，避免与"移动窗口"的十字标混淆
         Capture = true;
         _autoScrollTimer.Start();
     }
@@ -509,11 +518,16 @@ internal sealed class GlassTextBox : TextBox
     private void AutoScrollTick()
     {
         if (!_autoScrolling) return;
-        if (!Capture) Capture = true; // WmMouseUp 释放过捕获，这里持续夺回，保证指针在玻璃外也能滚
-        // 距锚点每约 2 倍行高滚 1 行，带小数累积；锚点上方为向上滚
-        double lines = _autoScrollOffset.Y / (Font.Height * 2.0);
+        int dy = _autoScrollOffset.Y - _autoScrollAnchor.Y; // 正 = 向下滚
+        int effective = Math.Abs(dy) - AutoScrollDeadZonePx;
+        if (effective <= 0)
+        {
+            _autoScrollCarry = 0;
+            return;
+        }
+        double lines = effective / (double)AutoScrollPxPerLine * Math.Sign(dy);
         _autoScrollCarry += lines;
-        int whole = Math.Clamp((int)_autoScrollCarry, -10, 10);
+        int whole = Math.Clamp((int)_autoScrollCarry, -AutoScrollMaxLinesPerTick, AutoScrollMaxLinesPerTick);
         if (whole == 0) return;
         _autoScrollCarry -= whole;
         ScrollByLines(whole);

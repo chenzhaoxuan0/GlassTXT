@@ -13,8 +13,6 @@
 
 把每日待办放在桌面上，直接编辑并自动保存。
 
-![GlassTXT 使用示例：桌面玻璃中的待办清单](docs/screenshot.png)
-
 ![GlassTXT 使用示例：浅色玻璃特写](docs/screenshot2.png)
 
 ## 1.4 更新
@@ -177,7 +175,6 @@ Config.cs            配置读写、取色工具、开机自启
 TextFile.cs          txt 读写（UTF-8/BOM/GBK → UTF-8）
 NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、滚动、GBK 解码
 tests/              Windows 集成回归与透明度像素检查
-docs/screenshot.png    README 使用效果图
 docs/screenshot2.png   README 使用效果图（浅色特写）
 docs/renwulan.png      README 任务栏显示截图
 docs/settings2.png     README 设置页截图（含任务栏分组）

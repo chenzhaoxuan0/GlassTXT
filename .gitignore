@@ -6,7 +6,7 @@ error.log
 *.zip
 publish*/
 docs/*
-!docs/screenshot.png
+
 !docs/screenshot2.png
 !docs/renwulan.png
 !docs/settings2.png

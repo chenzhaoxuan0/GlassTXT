@@ -7,16 +7,16 @@ internal sealed class SettingsForm : Form
     private readonly Label _glassColorHex = MakeHex();
     private readonly TrackBar _glassOpacityBar = new()
     {
-        Minimum = 10, Maximum = 100, TickStyle = TickStyle.None,
-        SmallChange = 1, LargeChange = 5, Width = 210,
+        Minimum = 0, Maximum = 100, TickStyle = TickStyle.None,
+        SmallChange = 1, LargeChange = 5, Width = 190,
     };
-    private readonly Label _glassOpacityVal = MakeHex();
+    private readonly NumericUpDown _glassOpacityInput = MakeOpacityInput("玻璃不透明度");
     private readonly TrackBar _textOpacityBar = new()
     {
-        Minimum = 10, Maximum = 100, TickStyle = TickStyle.None,
-        SmallChange = 1, LargeChange = 5, Width = 210,
+        Minimum = 0, Maximum = 100, TickStyle = TickStyle.None,
+        SmallChange = 1, LargeChange = 5, Width = 190,
     };
-    private readonly Label _textOpacityVal = MakeHex();
+    private readonly NumericUpDown _textOpacityInput = MakeOpacityInput("文字不透明度");
     private readonly Button _fontColorBtn = MakeSwatch();
     private readonly Label _fontColorHex = MakeHex();
     private readonly ComboBox _fontBox = new()
@@ -51,17 +51,18 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(500, 620);
+        ClientSize = new Size(600, 720);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
         var table = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
+            AutoScroll = true,
             ColumnCount = 2,
             Padding = new Padding(14, 12, 14, 10),
         };
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         void Heading(string text)
@@ -91,8 +92,8 @@ internal sealed class SettingsForm : Form
 
         Heading("外观");
         Row("玻璃颜色", SwatchRow(_glassColorBtn, _glassColorHex));
-        Row("玻璃不透明度", SliderRow(_glassOpacityBar, _glassOpacityVal));
-        Row("文字不透明度", SliderRow(_textOpacityBar, _textOpacityVal));
+        Row("玻璃不透明度", SliderRow(_glassOpacityBar, _glassOpacityInput));
+        Row("文字不透明度", SliderRow(_textOpacityBar, _textOpacityInput));
         Row("字体颜色", SwatchRow(_fontColorBtn, _fontColorHex));
         Row("字体", _fontBox);
         Row("字号", _fontSize);
@@ -118,8 +119,10 @@ internal sealed class SettingsForm : Form
 
         // 初值
         var a = App.Config.Appearance;
-        _glassOpacityBar.Value = Math.Clamp(a.OpacityPercent, 10, 100);
-        _textOpacityBar.Value = Math.Clamp(a.TextOpacityPercent, 10, 100);
+        _glassOpacityBar.Value = Math.Clamp(a.OpacityPercent, 0, 100);
+        _glassOpacityInput.Value = _glassOpacityBar.Value;
+        _textOpacityBar.Value = Math.Clamp(a.TextOpacityPercent, 0, 100);
+        _textOpacityInput.Value = _textOpacityBar.Value;
         _fontSize.Value = Math.Clamp(a.FontSize, 8, 72);
         _zoom.Value = Math.Clamp(a.ZoomPercent, 50, 300);
         foreach (var family in new System.Drawing.Text.InstalledFontCollection().Families.Select(f => f.Name))
@@ -141,16 +144,10 @@ internal sealed class SettingsForm : Form
             PickColor(App.Config.Appearance.GlassColor, c => App.Config.Appearance.GlassColor = ColorUtil.ToHex(c));
         _fontColorBtn.Click += (_, _) =>
             PickColor(App.Config.Appearance.FontColor, c => App.Config.Appearance.FontColor = ColorUtil.ToHex(c));
-        _glassOpacityBar.ValueChanged += (_, _) =>
-        {
-            App.Config.Appearance.OpacityPercent = _glassOpacityBar.Value;
-            ApplyAppearanceChanges();
-        };
-        _textOpacityBar.ValueChanged += (_, _) =>
-        {
-            App.Config.Appearance.TextOpacityPercent = _textOpacityBar.Value;
-            ApplyAppearanceChanges();
-        };
+        BindOpacity(_glassOpacityBar, _glassOpacityInput,
+            value => App.Config.Appearance.OpacityPercent = value);
+        BindOpacity(_textOpacityBar, _textOpacityInput,
+            value => App.Config.Appearance.TextOpacityPercent = value);
         _fontBox.SelectedIndexChanged += (_, _) =>
         {
             if (_fontBox.SelectedItem is string name)
@@ -214,6 +211,32 @@ internal sealed class SettingsForm : Form
 
     private static Label MakeHex() => new() { AutoSize = true, Anchor = AnchorStyles.Left };
 
+    private static NumericUpDown MakeOpacityInput(string name) => new()
+    {
+        Minimum = 0, Maximum = 100, DecimalPlaces = 0, Increment = 1,
+        Width = 68, TextAlign = HorizontalAlignment.Right,
+        Anchor = AnchorStyles.Left, AccessibleName = name,
+    };
+
+    private void BindOpacity(TrackBar bar, NumericUpDown input, Action<int> assign)
+    {
+        bar.ValueChanged += (_, _) =>
+        {
+            input.Value = bar.Value;
+            if (_loading) return;
+            assign(bar.Value);
+            ApplyAppearanceChanges();
+        };
+        input.ValueChanged += (_, _) => bar.Value = (int)input.Value;
+        input.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            // Reading Value validates pending typed text using NumericUpDown's bounds.
+            _ = input.Value;
+            e.SuppressKeyPress = true;
+        };
+    }
+
     private FlowLayoutPanel SwatchRow(Button button, Label hex)
     {
         var panel = new FlowLayoutPanel
@@ -229,7 +252,7 @@ internal sealed class SettingsForm : Form
         return panel;
     }
 
-    private FlowLayoutPanel SliderRow(TrackBar bar, Label valueLabel)
+    private FlowLayoutPanel SliderRow(TrackBar bar, NumericUpDown input)
     {
         var panel = new FlowLayoutPanel
         {
@@ -240,7 +263,8 @@ internal sealed class SettingsForm : Form
         };
         bar.Margin = new Padding(0, 4, 8, 0);
         panel.Controls.Add(bar);
-        panel.Controls.Add(valueLabel);
+        panel.Controls.Add(input);
+        panel.Controls.Add(new Label { Text = "%", AutoSize = true, Anchor = AnchorStyles.Left });
         return panel;
     }
 
@@ -301,8 +325,6 @@ internal sealed class SettingsForm : Form
         _glassColorHex.Text = ColorUtil.ToHex(glass);
         _fontColorBtn.BackColor = font;
         _fontColorHex.Text = ColorUtil.ToHex(font);
-        _glassOpacityVal.Text = _glassOpacityBar.Value + "%";
-        _textOpacityVal.Text = _textOpacityBar.Value + "%";
         _zoomVal.Text = _zoom.Value + "%";
     }
 

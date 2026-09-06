@@ -51,9 +51,15 @@ internal sealed class ZoomBadge : OverlayForm
     {
         _label.Text = text;
         Size = _label.GetPreferredSize(Size.Empty);
-        Location = new System.Drawing.Point(x, y);
+        Location = new System.Drawing.Point(x - Width / 2, y);
         _hide.Stop();
         _hide.Start();
         Show();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _hide.Dispose();
+        base.Dispose(disposing);
     }
 }

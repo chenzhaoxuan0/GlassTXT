@@ -1,5 +1,5 @@
 using System.IO.Pipes;
-using System.Windows;
+using System.Windows.Forms.Integration;
 using WinForms = System.Windows.Forms;
 
 namespace GlassTXT;
@@ -14,11 +14,12 @@ internal static class App
     public static TrayController Tray = null!;
     public static HotkeyWindow Hotkeys = null!;
     public static SettingsForm? SettingsWindow;
-    public static System.Windows.Threading.Dispatcher UiDispatcher = null!;
+    public static Control Marshal = null!;
     public static string LastHotkeyStatus = "empty";
 
     public static void OpenGlass(string path)
     {
+        if (_shuttingDown) return;
         try { path = Path.GetFullPath(path); } catch { return; }
         if (!File.Exists(path))
         {
@@ -35,6 +36,8 @@ internal static class App
         }
 
         var glass = new GlassWindow(path);
+        // Keep the WinForms loop; forward keyboard/IME input to this modeless WPF window.
+        ElementHost.EnableModelessKeyboardInterop(glass);
         Glasses.Add(glass);
         glass.Show();
     }
@@ -80,13 +83,10 @@ internal static class App
 
     public static void RecenterAll()
     {
-        double waW = SystemParameters.WorkArea.Width;
-        double waH = SystemParameters.WorkArea.Height;
         int i = 0;
         foreach (var g in Glasses)
         {
-            g.Left = Math.Max(0, (waW - g.ActualWidth) / 2) + i * 36;
-            g.Top = Math.Max(0, (waH - g.ActualHeight) / 2) + i * 28;
+            g.CenterOnScreen(i * 28);
             i++;
         }
         foreach (var g in Glasses) g.SaveLayoutNow();
@@ -112,56 +112,57 @@ internal static class App
     public static void SaveConfig() => Config.Save();
 
     private static bool _shuttingDown;
+    private static readonly CancellationTokenSource PipeCancellation = new();
 
     public static void Shutdown()
     {
         if (_shuttingDown) return;
         _shuttingDown = true;
+        PipeCancellation.Cancel();
         foreach (var g in Glasses.ToArray())
-        {
-            g.FlushSave();
-            g.SaveLayoutNow();
             g.Close();
-        }
+        SettingsWindow?.Close();
         SaveConfig();
-        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvokeShutdown(
-            System.Windows.Threading.DispatcherPriority.Background);
+        WinForms.Application.ExitThread();
     }
 
     /// <summary>后台循环：接收后续实例转发来的 "open&lt;TAB&gt;路径"，转交 UI 线程开新玻璃。</summary>
-    public static void StartPipeServer()
+    public static void StartPipeServer(string pipeName = PipeName)
     {
         Task.Run(async () =>
         {
-            while (true)
+            var token = PipeCancellation.Token;
+            while (!token.IsCancellationRequested)
             {
-                NamedPipeServerStream? server = null;
                 try
                 {
-                    server = CreatePipeServer();
-                    await server.WaitForConnectionAsync().ConfigureAwait(false);
+                    using var server = CreatePipeServer(pipeName);
+                    await server.WaitForConnectionAsync(token).ConfigureAwait(false);
                     string? line;
                     using (var reader = new StreamReader(server))
-                        line = await reader.ReadLineAsync().ConfigureAwait(false);
-                    server = null; // reader 的 Dispose 已释放 server
+                        line = await reader.ReadLineAsync(token).ConfigureAwait(false);
                     if (line is not null && line.StartsWith("open\t", StringComparison.Ordinal))
                     {
                         string file = line["open\t".Length..].Trim();
-                        if (file.Length > 0)
-                            UiDispatcher.BeginInvoke(() => OpenGlass(file));
+                        if (file.Length > 0 && !token.IsCancellationRequested)
+                            Marshal.BeginInvoke(() => OpenGlass(file));
                     }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    break;
                 }
                 catch
                 {
-                    try { server?.Dispose(); } catch { /* 下轮重试 */ }
-                    try { await Task.Delay(800).ConfigureAwait(false); } catch { }
+                    try { await Task.Delay(800, token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
                 }
             }
         });
     }
 
-    private static NamedPipeServerStream CreatePipeServer()
-        => new(PipeName, PipeDirection.In,
+    private static NamedPipeServerStream CreatePipeServer(string pipeName)
+        => new(pipeName, PipeDirection.In,
             NamedPipeServerStream.MaxAllowedServerInstances,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 }

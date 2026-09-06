@@ -1,5 +1,4 @@
 using System.IO.Pipes;
-using System.Windows;
 using WinForms = System.Windows.Forms;
 
 namespace GlassTXT;
@@ -25,30 +24,20 @@ internal static class Program
         WinForms.Application.SetCompatibleTextRenderingDefault(false);
         WinForms.Application.SetUnhandledExceptionMode(WinForms.UnhandledExceptionMode.CatchException);
         WinForms.Application.ThreadException += (_, e) => LogError(e.Exception);
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.UnhandledException +=
+            (_, e) => LogError(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex) LogError(ex);
+        };
 
         string file = ResolveFile(args);
         if (TryForwardToRunningInstance(file)) return;
 
         App.Config = Config.Load();
 
-        // WPF Application 拥有主循环：玻璃窗口的键盘与中文输入法（TSF）才能正常工作；
-        // 托盘/设置页作为 WinForms 互操作件挂进来（EnableWindowsFormsInterop）
-        var app = new System.Windows.Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        app.Startup += (_, _) =>
-        {
-            App.UiDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-            App.StartPipeServer();
-            App.Tray = new TrayController();
-            App.Hotkeys = new HotkeyWindow();
-            App.ApplyHotkey(App.Config.Behavior.Hotkey);
-            App.OpenGlass(file);
-        };
-        app.Exit += (_, _) =>
-        {
-            App.Tray.Dispose();
-            App.Hotkeys.Dispose();
-        };
-        app.Run();
+        using var host = new AppHost(file);
+        WinForms.Application.Run(host);
     }
 
     /// <summary>没有参数时打开 exe 旁边的 todo.txt（不存在则创建示例）；参数指定的文件不存在则创建空文件。</summary>

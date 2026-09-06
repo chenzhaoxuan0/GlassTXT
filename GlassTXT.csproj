@@ -15,4 +15,9 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+    <InternalsVisibleTo Include="GlassTXT.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -57,13 +57,17 @@
 
 ## 设置页（改动即时生效并自动保存）
 
-- **外观**（对所有玻璃全局生效）：玻璃颜色、玻璃不透明度 10%–100%、文字不透明度 10%–100%、字体颜色、字体、字号、缩放比例 50%–300%
+- **外观**（对所有玻璃全局生效）：玻璃颜色、玻璃不透明度 0%–100%、文字不透明度 0%–100%、字体颜色、字体、字号、缩放比例 50%–300%
 - **行为**：中键滚动模式（按住滚动 / 点一下持续滚动 / 关闭）、滚轮行数（1–10）、穿透热键（点击输入框后直接按组合键）、锁定位置（禁止拖动与缩放）、开机自启
 
 两个不透明度互相独立：
 
-- **玻璃不透明度**作用于整块窗口（含文字），调低整块都变淡
-- **文字不透明度**只管文字：调低后文字变淡、玻璃不变（实现方式是把文字颜色向玻璃色按比例混合，视觉效果与"文字单独半透明"一致）
+- **玻璃不透明度**只作用于背景，调低后背景变淡，文字仍保持自身的不透明度
+- **文字不透明度**只作用于文字画刷（包括插入光标），调低后文字真正半透明，背景保持不变
+
+托盘、设置页和消息循环保留 WinForms；每块玻璃使用一个 WPF 窗口，通过背景与文字画刷分别合成 Alpha。没有双层玻璃窗口，也没有色键抠图或文字颜色混合模拟。
+
+两种不透明度都可通过滑块或数字输入框调整。输入 0–100 的整数，按 Enter 或离开输入框确认；输入框与滑块双向同步，并自动保存。0% 为完全透明，100% 为完全不透明。背景为 0% 时，完全透明的空白区域会让鼠标穿过；两项均为 0% 时，可通过托盘 → 设置恢复可见度。
 
 **缩放比例**以"字号"为 100% 基准整体放大/缩小文字，`Ctrl+滚轮` 调的是同一个值，滚动时玻璃上方会显示当前倍率。
 
@@ -72,8 +76,8 @@
 | 字段 | 含义 |
 | --- | --- |
 | `Appearance.GlassColor` / `FontColor` | 玻璃底色 / 文字颜色（`#RRGGBB`） |
-| `Appearance.OpacityPercent` | 玻璃不透明度（10–100），作用于整块窗口 |
-| `Appearance.TextOpacityPercent` | 文字不透明度（10–100），只影响文字 |
+| `Appearance.OpacityPercent` | 玻璃背景不透明度（0–100），不影响文字画刷 |
+| `Appearance.TextOpacityPercent` | 文字不透明度（0–100），只影响文字 |
 | `Appearance.FontName` / `FontSize` | 字体 / 字号（缩放的 100% 基准） |
 | `Appearance.ZoomPercent` | 缩放比例 50%–300%，Ctrl+滚轮与设置页共用 |
 | `Behavior.Hotkey` | 穿透热键，如 `"Ctrl+Alt+G"`，`""` 表示停用 |
@@ -81,7 +85,7 @@
 | `Behavior.AutoStart` | 开机自启（实际以注册表为准，此项为镜像） |
 | `Behavior.MiddleScrollMode` | 中键滚动：`hold` 按住滚动 / `toggle` 点一下持续滚动 / `off` 关闭 |
 | `Behavior.WheelLinesPerNotch` | 滚轮每滚一格的行数（1–10，默认 3） |
-| `Windows` | 每个绑定文件上次的位置和大小 |
+| `Windows` | 每个绑定文件上次的位置和大小，使用屏幕物理像素，兼容 v1.1 |
 
 手改配置文件后重启程序生效；改坏了直接删掉，会按默认值重建。
 
@@ -103,12 +107,12 @@
 ## 源码结构
 
 ```
-GlassTXT.csproj      项目文件（net10.0-windows + WinForms）
+GlassTXT.csproj      项目文件（net10.0-windows + WinForms + WPF）
 GlobalUsings.cs      全局 using
 Program.cs           入口：默认文件解析、单实例转发、异常日志
+AppHost.cs           WinForms 消息循环上下文、托盘与热键生命周期
 App.cs               应用状态：玻璃列表、穿透/显隐/回正、命名管道 IPC
-GlassForm.cs         玻璃窗口：无边框、拖动缩放、自动保存、外部修改监听、拖拽
-                     └ GlassTextBox：滚轮逐行滚动、中键自动滚动、Ctrl+滚轮缩放
+GlassWindow.cs       WPF 玻璃：独立 Alpha、编辑、拖动缩放、自动保存、滚动、拖拽
 SettingsForm.cs      设置页：取色、透明度、缩放、字体、热键捕获、自启
 TrayController.cs    托盘图标与菜单
 HotkeyWindow.cs      全局热键注册（RegisterHotKey）
@@ -119,7 +123,22 @@ TextFile.cs          txt 读写（UTF-8/BOM/GBK → UTF-8）
 NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、滚动、GBK 解码
 docs/adr/            重要决策记录
 CONTEXT.md           术语表
+tests/              Windows 集成回归与透明度像素检查
 ```
+
+## 回归验证
+
+```powershell
+dotnet run --project tests/GlassTXT.Tests.csproj
+```
+
+测试使用独立配置目录、绑定文件和命名管道，不读写正式版的 `publish/config.json` 或绑定文件。运行时会短暂打开测试窗口。实机输入验收可使用：
+
+```powershell
+dotnet run --project tests/GlassTXT.Tests.csproj -- --interactive
+```
+
+交互测试窗口仅为便于工具定位而显示任务栏入口，关闭玻璃即结束测试。验证范围及待人工验收项目见 `docs/adr/0002-winforms-shell-wpf-glass.md`。
 
 ## 下载
 

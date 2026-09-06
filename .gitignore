@@ -5,7 +5,9 @@ publish/
 error.log
 *.zip
 publish*/
-docs/
+docs/*
+!docs/screenshot.png
+!docs/settings.png
 CONTEXT.md
 config.json
 config.json.tmp

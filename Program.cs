@@ -1,4 +1,6 @@
 using System.IO.Pipes;
+using System.Windows;
+using WinForms = System.Windows.Forms;
 
 namespace GlassTXT;
 
@@ -18,41 +20,35 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        Application.ThreadException += (_, e) => LogError(e.Exception);
+        WinForms.Application.SetHighDpiMode(WinForms.HighDpiMode.PerMonitorV2);
+        WinForms.Application.EnableVisualStyles();
+        WinForms.Application.SetCompatibleTextRenderingDefault(false);
+        WinForms.Application.SetUnhandledExceptionMode(WinForms.UnhandledExceptionMode.CatchException);
+        WinForms.Application.ThreadException += (_, e) => LogError(e.Exception);
 
         string file = ResolveFile(args);
         if (TryForwardToRunningInstance(file)) return;
 
         App.Config = Config.Load();
-        App.Marshal = new Control();
-        _ = App.Marshal.Handle;
-        App.StartPipeServer();
-        App.Tray = new TrayController();
-        App.OpenGlass(file);
-        Application.Run(new AppHost());
-    }
 
-    private sealed class AppHost : ApplicationContext
-    {
-        public AppHost()
+        // WPF Application 拥有主循环：玻璃窗口的键盘与中文输入法（TSF）才能正常工作；
+        // 托盘/设置页作为 WinForms 互操作件挂进来（EnableWindowsFormsInterop）
+        var app = new System.Windows.Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        app.Startup += (_, _) =>
         {
+            App.UiDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            App.StartPipeServer();
+            App.Tray = new TrayController();
             App.Hotkeys = new HotkeyWindow();
             App.ApplyHotkey(App.Config.Behavior.Hotkey);
-        }
-
-        protected override void Dispose(bool disposing)
+            App.OpenGlass(file);
+        };
+        app.Exit += (_, _) =>
         {
-            if (disposing)
-            {
-                App.Hotkeys?.Dispose();
-                App.Tray?.Dispose();
-            }
-            base.Dispose(disposing);
-        }
+            App.Tray.Dispose();
+            App.Hotkeys.Dispose();
+        };
+        app.Run();
     }
 
     /// <summary>没有参数时打开 exe 旁边的 todo.txt（不存在则创建示例）；参数指定的文件不存在则创建空文件。</summary>

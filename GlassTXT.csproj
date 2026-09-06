@@ -4,11 +4,12 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>GlassTXT</RootNamespace>
     <AssemblyName>GlassTXT</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <DebugType>embedded</DebugType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

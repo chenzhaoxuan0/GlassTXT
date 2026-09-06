@@ -106,6 +106,17 @@ internal static class ColorUtil
         catch { return fallback; }
     }
 
+    public static System.Windows.Media.Color ParseWpf(string? text, System.Windows.Media.Color fallback)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return fallback;
+        try
+        {
+            var c = ColorTranslator.FromHtml(text.Trim());
+            return System.Windows.Media.Color.FromRgb(c.R, c.G, c.B);
+        }
+        catch { return fallback; }
+    }
+
     /// <summary>把前景色向背景色混合 t（0–1）：t=1 纯前景，t=0 完全隐入背景。</summary>
     public static Color Blend(Color background, Color foreground, double t)
     {
@@ -114,6 +125,15 @@ internal static class ColorUtil
             (int)Math.Round(background.R + (foreground.R - background.R) * t),
             (int)Math.Round(background.G + (foreground.G - background.G) * t),
             (int)Math.Round(background.B + (foreground.B - background.B) * t));
+    }
+
+    public static System.Windows.Media.Color BlendWpf(System.Windows.Media.Color background, System.Windows.Media.Color foreground, double t)
+    {
+        t = Math.Clamp(t, 0.0, 1.0);
+        return System.Windows.Media.Color.FromRgb(
+            (byte)Math.Round(background.R + (foreground.R - background.R) * t),
+            (byte)Math.Round(background.G + (foreground.G - background.G) * t),
+            (byte)Math.Round(background.B + (foreground.B - background.B) * t));
     }
 }
 

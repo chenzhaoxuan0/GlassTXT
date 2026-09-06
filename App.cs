@@ -1,4 +1,6 @@
 using System.IO.Pipes;
+using System.Windows;
+using WinForms = System.Windows.Forms;
 
 namespace GlassTXT;
 
@@ -8,11 +10,11 @@ internal static class App
     public const string PipeName = "GlassTXT-IPC";
 
     public static Config Config = null!;
-    public static readonly List<GlassForm> Glasses = new();
+    public static readonly List<GlassWindow> Glasses = new();
     public static TrayController Tray = null!;
     public static HotkeyWindow Hotkeys = null!;
     public static SettingsForm? SettingsWindow;
-    public static Control Marshal = null!;
+    public static System.Windows.Threading.Dispatcher UiDispatcher = null!;
     public static string LastHotkeyStatus = "empty";
 
     public static void OpenGlass(string path)
@@ -32,7 +34,7 @@ internal static class App
             return;
         }
 
-        var glass = new GlassForm(path);
+        var glass = new GlassWindow(path);
         Glasses.Add(glass);
         glass.Show();
     }
@@ -66,7 +68,7 @@ internal static class App
 
     public static void ShowHideAll()
     {
-        if (Glasses.Any(g => g.Visible))
+        if (Glasses.Any(g => g.IsVisible))
         {
             foreach (var g in Glasses) g.Hide();
         }
@@ -78,14 +80,13 @@ internal static class App
 
     public static void RecenterAll()
     {
-        var area = Screen.PrimaryScreen!.WorkingArea;
+        double waW = SystemParameters.WorkArea.Width;
+        double waH = SystemParameters.WorkArea.Height;
         int i = 0;
         foreach (var g in Glasses)
         {
-            g.Bounds = new Rectangle(
-                area.Left + Math.Max(0, (area.Width - g.Width) / 2) + i * 36,
-                area.Top + Math.Max(0, (area.Height - g.Height) / 2) + i * 28,
-                g.Width, g.Height);
+            g.Left = Math.Max(0, (waW - g.ActualWidth) / 2) + i * 36;
+            g.Top = Math.Max(0, (waH - g.ActualHeight) / 2) + i * 28;
             i++;
         }
         foreach (var g in Glasses) g.SaveLayoutNow();
@@ -110,15 +111,21 @@ internal static class App
 
     public static void SaveConfig() => Config.Save();
 
+    private static bool _shuttingDown;
+
     public static void Shutdown()
     {
+        if (_shuttingDown) return;
+        _shuttingDown = true;
         foreach (var g in Glasses.ToArray())
         {
             g.FlushSave();
             g.SaveLayoutNow();
+            g.Close();
         }
         SaveConfig();
-        Application.Exit();
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvokeShutdown(
+            System.Windows.Threading.DispatcherPriority.Background);
     }
 
     /// <summary>后台循环：接收后续实例转发来的 "open&lt;TAB&gt;路径"，转交 UI 线程开新玻璃。</summary>
@@ -141,7 +148,7 @@ internal static class App
                     {
                         string file = line["open\t".Length..].Trim();
                         if (file.Length > 0)
-                            Marshal.BeginInvoke(() => OpenGlass(file));
+                            UiDispatcher.BeginInvoke(() => OpenGlass(file));
                     }
                 }
                 catch

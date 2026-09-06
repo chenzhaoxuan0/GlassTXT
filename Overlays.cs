@@ -47,11 +47,11 @@ internal sealed class ZoomBadge : OverlayForm
         _hide.Tick += (_, _) => Hide();
     }
 
-    public void ShowAt(Point screenTopCenter, string text)
+    public void ShowAt(int x, int y, string text)
     {
         _label.Text = text;
         Size = _label.GetPreferredSize(Size.Empty);
-        Location = new Point(screenTopCenter.X - Width / 2, screenTopCenter.Y);
+        Location = new System.Drawing.Point(x, y);
         _hide.Stop();
         _hide.Start();
         Show();

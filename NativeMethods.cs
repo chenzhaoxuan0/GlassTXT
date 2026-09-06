@@ -15,10 +15,10 @@ internal static class NativeMethods
     public const uint MOD_WIN = 0x0008;
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+    public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     public static void ModifyExStyle(IntPtr hwnd, int add, int remove)
     {
@@ -45,6 +45,42 @@ internal static class NativeMethods
     public static bool IsWinKeyDown()
         => (GetKeyState(0x5B /* VK_LWIN */) & 0x8000) != 0
            || (GetKeyState(0x5C /* VK_RWIN */) & 0x8000) != 0;
+
+    /// <summary>设置窗口的 Accent 合成层：让背景以独立透明度叠加在桌面上（文字不受影响）。</summary>
+    public static void SetGlassAccent(IntPtr hwnd, bool enabled, int alphaPercent, Color color)
+    {
+        var policy = new AccentPolicy { AccentState = enabled ? 4 : 0 }; // 4 = ACCENT_ENABLE_ACRYLICBLURBEHIND
+        if (enabled)
+        {
+            int a = Math.Clamp(alphaPercent, 0, 100) * 255 / 100;
+            policy.GradientColor = (a << 24) | (color.B << 16) | (color.G << 8) | color.R;
+        }
+        IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf<AccentPolicy>());
+        try
+        {
+            Marshal.StructureToPtr(policy, ptr, false);
+            var data = new WindowCompositionAttribData
+            {
+                Attribute = 19, // WCA_ACCENT_POLICY
+                Data = ptr,
+                SizeOfData = Marshal.SizeOf<AccentPolicy>(),
+            };
+            SetWindowCompositionAttribute(hwnd, ref data);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AccentPolicy { public int AccentState; public int AccentFlags; public int GradientColor; public int AnimationId; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowCompositionAttribData { public int Attribute; public IntPtr Data; public int SizeOfData; }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowCompositionAttribute(IntPtr hWnd, ref WindowCompositionAttribData data);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int MultiByteToWideChar(uint codePage, uint flags,

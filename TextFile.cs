@@ -1,6 +1,6 @@
 namespace GlassTXT;
 
-/// <summary>txt 读写：读取自动识别 UTF-8 / BOM / GBK，写回统一为无 BOM 的 UTF-8（见 docs/adr/0001）。</summary>
+/// <summary>txt 读写：读取自动识别 UTF-8 / BOM / GBK，写回统一为无 BOM 的 UTF-8。</summary>
 internal static class TextFile
 {
     public static string Read(string path)

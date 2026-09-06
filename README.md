@@ -1,4 +1,4 @@
-# GlassTXT — 桌面玻璃 TXT 便签
+# GlassTXT 1.3 — 桌面玻璃 TXT 便签
 
 一块漂浮在桌面上的无边框、半透明 TXT 编辑窗，专为"每日待办常驻桌面"设计：
 没有菜单栏、没有标题栏、不出现在任务栏和 Alt+Tab 里，停止输入自动保存，
@@ -9,13 +9,21 @@
 看不到的：标题栏 / 菜单栏 / 任务栏项 / 保存按钮
 ```
 
-![GlassTXT：漂浮在桌面上的玻璃便签](docs/screenshot.png)
+## 1.3 更新
+
+- WinForms 外壳搭配单个 WPF 玻璃窗口，背景与文字真正独立透明。
+- 两种不透明度均支持 0%–100%，滑块与数字输入框双向同步。
+- 恢复文字右键的剪切、复制、粘贴、全选，同时保留玻璃操作菜单。
+- 改善设置分组、去除设置页滚动条，修复缩放、滚动和关闭保存。
+- 首次自动生成的待办文件附带使用说明，已有文件不会被覆盖。
 
 ## 快速开始
 
-1. 双击 `publish\GlassTXT.exe`
+1. 从 [v1.3.0 Release](https://github.com/chenzhaoxuan0/GlassTXT/releases/tag/v1.3.0) 下载单个 `GlassTXT.exe`，放到有写入权限的文件夹后运行，无需 ZIP 或安装程序
    - 首次运行会在同目录生成 `todo.txt`（带示例内容）和 `config.json`
    - exe、todo.txt、config.json 永远待在一起——整个文件夹拷到别的电脑，配置跟着走
+   - 需要 Windows x64 和 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0/runtime)（桌面运行时）
+   - 升级前从托盘退出旧进程，只替换 EXE；保留自己的配置和 TXT。新说明不会覆盖已有的 `todo.txt`
 2. 直接打字编辑，停顿约半秒自动保存；窗口失焦时立即保存
 3. 开机自启：托盘 → 设置… → 勾选"开机自启"（写当前用户注册表）
 
@@ -97,7 +105,7 @@
 
 ## 构建与分发
 
-- 本机构建：双击 `build.bat`（需 .NET SDK），产物在 `publish\GlassTXT.exe`（约 220 KB，依赖 .NET 10 桌面运行时）
+- 本机构建：双击 `build.bat`（需 .NET 10 SDK），产物在 `publish\GlassTXT.exe`（依赖 .NET 10 桌面运行时）
 - 发给没装运行时的机器：
 
   ```bat
@@ -105,6 +113,8 @@
   ```
 
 ## 源码结构
+
+仓库当前源码树只保留源码、测试源码、项目文件、构建脚本、图标、README 和许可证。配置、TXT、日志、编译产物、截图及本地方案文档不上传。可执行程序仅通过 Releases 分发。
 
 ```
 GlassTXT.csproj      项目文件（net10.0-windows + WinForms + WPF）
@@ -121,8 +131,6 @@ Overlays.cs          穿透小浮层（缩放倍率徽标）
 Config.cs            配置读写、取色工具、开机自启
 TextFile.cs          txt 读写（UTF-8/BOM/GBK → UTF-8）
 NativeMethods.cs     Win32：窗口扩展样式、拖动、热键、滚动、GBK 解码
-docs/adr/            重要决策记录
-CONTEXT.md           术语表
 tests/              Windows 集成回归与透明度像素检查
 ```
 
@@ -138,11 +146,11 @@ dotnet run --project tests/GlassTXT.Tests.csproj
 dotnet run --project tests/GlassTXT.Tests.csproj -- --interactive
 ```
 
-交互测试窗口仅为便于工具定位而显示任务栏入口，关闭玻璃即结束测试。验证范围及待人工验收项目见 `docs/adr/0002-winforms-shell-wpf-glass.md`。
+交互测试窗口仅为便于工具定位而显示任务栏入口，关闭玻璃即结束测试。输入法候选框、实际鼠标拖拽、混合 DPI 多屏仍建议实机验收。
 
 ## 下载
 
-前往 [Releases](https://github.com/chenzhaoxuan0/GlassTXT/releases) 下载编译好的 `GlassTXT.exe`（约 230 KB，需安装 [.NET 10 桌面运行时](https://dotnet.microsoft.com/download/dotnet/10.0/runtime)；自包含版可自行按上文命令编译）。
+前往 [Releases](https://github.com/chenzhaoxuan0/GlassTXT/releases) 下载单个 `GlassTXT.exe`（需安装 [.NET 10 桌面运行时](https://dotnet.microsoft.com/download/dotnet/10.0/runtime)；自包含版可自行按上文命令编译）。首次无参数运行会在 EXE 旁生成带使用说明的 `todo.txt`；GitHub 自动提供的源码压缩包不是必需下载项。
 
 ## 开源许可
 

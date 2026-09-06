@@ -77,6 +77,7 @@ internal static class Program
     private static async Task RunTests(string file)
     {
         await Task.Delay(200);
+        CheckFirstRunFile();
         Check(Forms.Application.MessageLoop, "WinForms owns the message loop");
         Check(System.Windows.Application.Current is null, "No WPF Application or second main loop");
         var glass = App.Glasses.Single();
@@ -219,6 +220,25 @@ internal static class Program
         Check(Field<ZoomBadge>(glass, "_zoomBadge").IsDisposed, "Closing disposes overlay");
         Check(!Field<System.Windows.Threading.DispatcherTimer>(glass, "_saveTimer").IsEnabled,
             "Closing stops save timer");
+    }
+
+    private static void CheckFirstRunFile()
+    {
+        var entry = typeof(App).Assembly.GetType("GlassTXT.Program")!;
+        var resolve = entry.GetMethod("ResolveFile", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var sample = (string)entry.GetField("SampleTodo", BindingFlags.Static | BindingFlags.NonPublic)!
+            .GetRawConstantValue()!;
+        Check(sample.Contains("GlassTXT 1.3") && sample.Contains("Ctrl+Alt+G")
+            && sample.Contains("0%-100%"), "First-run template includes version and usage instructions");
+        var defaultPath = Path.Combine(AppContext.BaseDirectory, "todo.txt");
+        var existing = File.Exists(defaultPath) ? File.ReadAllBytes(defaultPath) : null;
+        var resolved = (string)resolve.Invoke(null, [Array.Empty<string>()])!;
+        Check(resolved == defaultPath && File.Exists(defaultPath), "No-argument launch creates default TXT beside executable");
+        Check(existing is null ? File.ReadAllText(defaultPath) == sample
+            : existing.SequenceEqual(File.ReadAllBytes(defaultPath)), "First run writes instructions without replacing existing TXT");
+        var before = File.ReadAllBytes(defaultPath);
+        resolve.Invoke(null, [Array.Empty<string>()]);
+        Check(before.SequenceEqual(File.ReadAllBytes(defaultPath)), "Repeated launch leaves default TXT unchanged");
     }
 
     private static void CheckResize(GlassWindow glass, IntPtr hwnd)

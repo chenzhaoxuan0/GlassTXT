@@ -4,3 +4,11 @@ publish/
 *.user
 error.log
 *.zip
+publish*/
+docs/
+CONTEXT.md
+config.json
+config.json.tmp
+*.txt
+*.log
+.vs/

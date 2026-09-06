@@ -43,6 +43,8 @@ internal sealed class SettingsForm : Form
     public SettingsForm()
     {
         Text = "GlassTXT 设置";
+        foreach (var label in MiddleScrollLabels)
+            _middleScroll.Items.Add(label); // 必须先填选项，SelectedIndex 才能赋值
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;

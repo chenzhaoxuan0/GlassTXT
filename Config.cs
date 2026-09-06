@@ -20,6 +20,10 @@ public sealed class BehaviorSettings
     public string Hotkey { get; set; } = "Ctrl+Alt+G";
     public bool LockPosition { get; set; } = false;
     public bool AutoStart { get; set; } = false;
+    /// <summary>中键滚动模式：hold=按住滚动（默认）| toggle=点一下持续滚动 | off=关闭。</summary>
+    public string MiddleScrollMode { get; set; } = "hold";
+    /// <summary>滚轮每滚一格滚动的行数。</summary>
+    public int WheelLinesPerNotch { get; set; } = 3;
 }
 
 public sealed class WindowLayout

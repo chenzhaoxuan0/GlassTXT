@@ -97,6 +97,7 @@ internal sealed class GlassForm : Form
             App.AdjustZoom(notches * 10);
             if (App.Config.Appearance.ZoomPercent != before) ShowZoomBadge();
         };
+        ApplyBehavior();
 
         MouseDown += FormMouseDown;
         _box.MouseDown += (_, e) => _boxDragPoint = e.Location;
@@ -161,6 +162,14 @@ internal sealed class GlassForm : Form
         int zoom = Math.Clamp(App.Config.Appearance.ZoomPercent, 50, 300);
         var topCenter = PointToScreen(new Point(Width / 2, 52));
         _zoomBadge.ShowAt(topCenter, $"缩放 {zoom}%");
+    }
+
+    /// <summary>把行为设置（中键滚动模式、滚轮行数）同步到文本框。</summary>
+    public void ApplyBehavior()
+    {
+        _box.MiddleScrollMode = App.Config.Behavior.MiddleScrollMode;
+        _box.WheelLinesPerNotch = App.Config.Behavior.WheelLinesPerNotch;
+        if (App.Config.Behavior.MiddleScrollMode == "off") _box.StopAutoScrollIfActive();
     }
 
     // ---- 穿透 ----
@@ -380,7 +389,10 @@ internal sealed class GlassForm : Form
 /// - 滚轮：Win32 EDIT 控件在没有滚动条时会直接忽略滚轮消息，这里自己接手，
 ///   用 EM_SCROLL(SB_LINEUP/SB_LINEDOWN) 精确按行滚动。
 ///   注意不能用 EM_LINESCROLL——它在无滚动条的 EDIT 上会无视行数直接滚到内容末尾。
-/// - 中键：按住中键上下拖动滚动（位移决定速度，带死区防抖），松开即停，不会失控。
+/// - 中键：三种模式（MiddleScrollMode）——
+///   hold（默认）= 按住中键拖动滚动，松开即停；
+///   toggle = 点一下持续滚动，任意点击/Esc/失焦退出；
+///   off = 中键不负责滚动。
 /// - Ctrl+滚轮：触发 ZoomRequested 事件，由宿主玻璃调整缩放并显示倍率。
 /// </summary>
 internal sealed class GlassTextBox : TextBox
@@ -391,7 +403,6 @@ internal sealed class GlassTextBox : TextBox
     private const int EmScroll = 0x00B5;
     private const int SbLineUp = 0;
     private const int SbLineDown = 1;
-    private const int LinesPerNotch = 3;
     private const int AutoScrollTickMs = 30;
     private const int AutoScrollDeadZonePx = 16;   // 锚点死区：轻微手抖不滚动
     private const int AutoScrollPxPerLine = 150;   // 每偏离锚点 150px = 每跳 1 行
@@ -407,6 +418,14 @@ internal sealed class GlassTextBox : TextBox
 
     /// <summary>Ctrl+滚轮触发：参数为滚过的格数（带符号，向上为正）。</summary>
     public event Action<int>? ZoomRequested;
+
+    /// <summary>中键滚动模式：hold | toggle | off。</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string MiddleScrollMode { get; set; } = "hold";
+
+    /// <summary>滚轮每滚一格的行数。</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int WheelLinesPerNotch { get; set; } = 3;
 
     public GlassTextBox()
     {
@@ -440,8 +459,9 @@ internal sealed class GlassTextBox : TextBox
                 }
                 else
                 {
+                    int per = Math.Clamp(WheelLinesPerNotch, 1, 10);
                     uint cmd = notches > 0 ? (uint)SbLineUp : (uint)SbLineDown; // 滚轮向上 = 回卷内容
-                    for (int i = 0; i < Math.Abs(notches * LinesPerNotch); i++)
+                    for (int i = 0; i < Math.Abs(notches * per); i++)
                         NativeMethods.SendMessage(Handle, EmScroll, (IntPtr)cmd, IntPtr.Zero);
                 }
             }
@@ -450,12 +470,18 @@ internal sealed class GlassTextBox : TextBox
         base.WndProc(ref m);
     }
 
-    // ---- 中键按住滚动（松开即停）----
+    // ---- 中键滚动（hold=按住滚动 / toggle=点一下持续滚动 / off=关闭）----
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
+        if (MiddleScrollMode == "off")
+        {
+            base.OnMouseDown(e);
+            return;
+        }
         if (_autoScrolling)
         {
+            // toggle：任意点击退出；hold：松键即停到不了这里，仅为防御
             StopAutoScroll();
             return;
         }
@@ -479,9 +505,9 @@ internal sealed class GlassTextBox : TextBox
 
     protected override void OnMouseUp(MouseEventArgs e)
     {
-        if (_autoScrolling && e.Button == MouseButtons.Middle)
+        if (MiddleScrollMode == "hold" && _autoScrolling && e.Button == MouseButtons.Middle)
         {
-            StopAutoScroll(); // 松开中键立即停止
+            StopAutoScroll(); // hold：松开即停
             return;
         }
         base.OnMouseUp(e);
@@ -489,7 +515,8 @@ internal sealed class GlassTextBox : TextBox
 
     protected override void OnMouseCaptureChanged(EventArgs e)
     {
-        if (_autoScrolling) StopAutoScroll(); // 按住模式：捕获丢失即停止
+        // hold：捕获丢失即停止；toggle：按键抬起后框架释放捕获属预期，由 tick 夺回
+        if (MiddleScrollMode == "hold" && _autoScrolling) StopAutoScroll();
         base.OnMouseCaptureChanged(e);
     }
 
@@ -518,6 +545,7 @@ internal sealed class GlassTextBox : TextBox
     private void AutoScrollTick()
     {
         if (!_autoScrolling) return;
+        if (MiddleScrollMode == "toggle" && !Capture) Capture = true; // toggle：捕获被框架放掉就夺回
         int dy = _autoScrollOffset.Y - _autoScrollAnchor.Y; // 正 = 向下滚
         int effective = Math.Abs(dy) - AutoScrollDeadZonePx;
         if (effective <= 0)

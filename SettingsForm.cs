@@ -23,6 +23,10 @@ internal sealed class SettingsForm : Form
     {
         DropDownStyle = ComboBoxStyle.DropDownList, Width = 220, DropDownWidth = 280,
     };
+    private readonly ComboBox _middleScroll = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, DropDownWidth = 160 };
+    private static readonly string[] MiddleScrollTokens = { "hold", "toggle", "off" };
+    private static readonly string[] MiddleScrollLabels = { "按住中键滚动（松开即停）", "点一下持续滚动", "关闭中键滚动" };
+    private readonly NumericUpDown _wheelLines = new() { Minimum = 1, Maximum = 10, Width = 90 };
     private readonly NumericUpDown _fontSize = new() { Minimum = 8, Maximum = 72, Width = 90 };
     private readonly NumericUpDown _zoom = new() { Minimum = 50, Maximum = 300, Increment = 10, Width = 90 };
     private readonly Label _zoomVal = MakeHex();
@@ -45,7 +49,7 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(500, 556);
+        ClientSize = new Size(500, 620);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
@@ -93,6 +97,8 @@ internal sealed class SettingsForm : Form
         Row("缩放比例", ZoomRow());
 
         Heading("行为");
+        Row("中键滚动", _middleScroll);
+        Row("滚轮行数", WheelLinesRow());
         Row("穿透热键", _hotkeyBox);
         Row("", _hotkeyStatus);
         Row("", _lockBox);
@@ -121,6 +127,9 @@ internal sealed class SettingsForm : Form
         _hotkeyBox.Text = App.Config.Behavior.Hotkey;
         _lockBox.Checked = App.Config.Behavior.LockPosition;
         _autoStartBox.Checked = AutoStart.IsSet();
+        int modeIndex = Array.IndexOf(MiddleScrollTokens, App.Config.Behavior.MiddleScrollMode);
+        _middleScroll.SelectedIndex = modeIndex >= 0 ? modeIndex : 0;
+        _wheelLines.Value = Math.Clamp(App.Config.Behavior.WheelLinesPerNotch, 1, 10);
         RefreshVisuals();
         _hotkeyStatus.Text = StatusText(App.LastHotkeyStatus, _hotkeyBox.Text, out var statusColor);
         _hotkeyStatus.ForeColor = statusColor;
@@ -157,6 +166,20 @@ internal sealed class SettingsForm : Form
         {
             App.Config.Appearance.ZoomPercent = (int)_zoom.Value;
             ApplyAppearanceChanges();
+        };
+        _middleScroll.SelectedIndexChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Behavior.MiddleScrollMode = MiddleScrollTokens[Math.Max(0, _middleScroll.SelectedIndex)];
+            App.ApplyBehaviorToAll();
+            App.SaveConfig();
+        };
+        _wheelLines.ValueChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Behavior.WheelLinesPerNotch = (int)_wheelLines.Value;
+            App.ApplyBehaviorToAll();
+            App.SaveConfig();
         };
         _lockBox.CheckedChanged += (_, _) =>
         {
@@ -238,6 +261,20 @@ internal sealed class SettingsForm : Form
         RefreshVisuals();
         App.ApplyAppearanceToAll();
         App.SaveConfig();
+    }
+
+    private FlowLayoutPanel WheelLinesRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 5, 3, 3),
+        };
+        panel.Controls.Add(_wheelLines);
+        panel.Controls.Add(new Label { Text = "  行 / 格（滚轮每滚一格）", AutoSize = true, Anchor = AnchorStyles.Left });
+        return panel;
     }
 
     private FlowLayoutPanel ZoomRow()

@@ -52,6 +52,12 @@ internal static class App
         SaveConfig();
     }
 
+    /// <summary>把行为设置同步到所有玻璃。</summary>
+    public static void ApplyBehaviorToAll()
+    {
+        foreach (var g in Glasses) g.ApplyBehavior();
+    }
+
     public static void ToggleClickThroughAll()
     {
         bool anyOn = Glasses.Any(g => g.ClickThrough);

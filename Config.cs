@@ -36,8 +36,10 @@ public sealed class TaskbarSettings
     public int BackgroundOpacityPercent { get; set; } = 55;
     public string TextColor { get; set; } = "#FFFFFF";
     public int TextOpacityPercent { get; set; } = 100;
-    /// <summary>任务栏字号（pt），字体族跟随玻璃字体。</summary>
+    /// <summary>任务栏字号（pt），字体族跟随玻璃字体，按设置精确渲染不自动缩放。</summary>
     public int FontSize { get; set; } = 10;
+    /// <summary>任务栏显示宽度（逻辑像素，0 = 按内容自适应）；超宽的行截断加省略号。</summary>
+    public int Width { get; set; } = 0;
     /// <summary>true 时整块浮层鼠标穿透（固定位置，不可拖动）。</summary>
     public bool ClickThrough { get; set; } = false;
     /// <summary>默认停靠位置：center=任务栏居中（默认，避开托盘图标区）| tray=系统托盘左侧 | left=任务栏最左侧。</summary>

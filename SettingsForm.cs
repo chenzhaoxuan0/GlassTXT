@@ -41,7 +41,8 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox _taskbarEnabled = new() { AutoSize = true, Text = "在任务栏显示待办（白色文字，TranslucentTB 风格）" };
     private readonly ComboBox _tbPosition = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, DropDownWidth = 170 };
     private static readonly string[] PositionTokens = { "center", "tray", "left" };
-    private static readonly string[] PositionLabels = { "任务栏居中（默认，避开托盘）", "系统托盘左侧", "任务栏最左侧" };
+    private static readonly string[] PositionLabels = { "任务栏居中（默认）", "系统托盘左侧", "任务栏最左侧" };
+    private readonly NumericUpDown _tbWidth = new() { Minimum = 0, Maximum = 2000, Increment = 10, Width = 80 };
     private readonly NumericUpDown _tbStart = new() { Minimum = 1, Maximum = 99, Width = 60 };
     private readonly NumericUpDown _tbEnd = new() { Minimum = 1, Maximum = 99, Width = 60 };
     private readonly Button _tbBgBtn = MakeSwatch();
@@ -56,6 +57,14 @@ internal sealed class SettingsForm : Form
     private readonly Label _tbTextHex = MakeHex();
     private readonly NumericUpDown _tbFontSize = new() { Minimum = 7, Maximum = 24, Width = 60 };
     private readonly CheckBox _tbClickThrough = new() { AutoSize = true, Text = "鼠标穿透任务栏显示（固定位置，不可拖动）" };
+    private readonly TableLayoutPanel _table = new()
+    {
+        Dock = DockStyle.Top,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        ColumnCount = 2,
+        Padding = new Padding(14, 12, 14, 10),
+    };
     private bool _loading = true;
 
     public SettingsForm()
@@ -71,16 +80,12 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
         ShowInTaskbar = true;
-        ClientSize = new Size(600, 905);
+        AutoScroll = true; // 屏幕太矮放不下全部设置时出滚动条，保证都能改到
+        ClientSize = new Size(600, 600);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
 
-        var table = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            Padding = new Padding(14, 12, 14, 10),
-        };
+        var table = _table;
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -151,6 +156,7 @@ internal sealed class SettingsForm : Form
         Row("", _taskbarEnabled);
         Row("默认位置", _tbPosition);
         Row("显示行数", TaskbarLineRow());
+        Row("宽度", TaskbarWidthRow());
         Row("背景", TaskbarBackgroundRow());
         Row("文字", TaskbarTextRow());
         Row("", _tbClickThrough);
@@ -161,8 +167,8 @@ internal sealed class SettingsForm : Form
             ForeColor = Color.DimGray,
             Margin = new Padding(0, 10, 0, 0),
             Text = "内容取自第一块玻璃（可在 config.json 的 Taskbar.File 指定其他文件）。" +
-                "默认位置会自动避开任务栏上已有的图标和工具（托盘、任务按钮、TrafficMonitor 等），挑最靠近中间的空隙；" +
-                "也可以左右拖动文字微调，右键可回正或隐藏。行数越多字号越小（有可读下限），实在放不下时只显示放得下的前几行。",
+                "启动时显示在任务栏中间，在任务栏上左右拖动文字可微调，右键可回正或隐藏。" +
+                "字号按设置精确渲染：行数×字号超过任务栏高度时，只显示放得下的前几行。",
         });
 
         Controls.Add(table);
@@ -188,6 +194,7 @@ internal sealed class SettingsForm : Form
         var tb = App.Config.Taskbar;
         _taskbarEnabled.Checked = tb.Enabled;
         _tbPosition.SelectedIndex = Math.Max(0, Array.IndexOf(PositionTokens, tb.Position));
+        _tbWidth.Value = Math.Clamp(tb.Width, 0, 2000);
         _tbStart.Value = Math.Clamp(tb.StartLine, 1, 99);
         _tbEnd.Value = Math.Clamp(Math.Max(tb.EndLine, tb.StartLine), 1, 99);
         _tbBgBar.Value = Math.Clamp(tb.BackgroundOpacityPercent, 0, 100);
@@ -266,6 +273,12 @@ internal sealed class SettingsForm : Form
             if (_loading) return;
             App.Config.Taskbar.Position = PositionTokens[Math.Max(0, _tbPosition.SelectedIndex)];
             App.Config.Taskbar.OffsetX = 0; // 换锚点后旧偏移没有意义，回到默认停靠点
+            ApplyTaskbarChanges();
+        };
+        _tbWidth.ValueChanged += (_, _) =>
+        {
+            if (_loading) return;
+            App.Config.Taskbar.Width = (int)_tbWidth.Value;
             ApplyTaskbarChanges();
         };
         _tbStart.ValueChanged += (_, _) =>
@@ -469,6 +482,20 @@ internal sealed class SettingsForm : Form
         return panel;
     }
 
+    private FlowLayoutPanel TaskbarWidthRow()
+    {
+        var panel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(3, 5, 3, 3),
+        };
+        panel.Controls.Add(_tbWidth);
+        panel.Controls.Add(new Label { Text = " 像素（0 = 按内容自适应）", AutoSize = true, Anchor = AnchorStyles.Left });
+        return panel;
+    }
+
     private FlowLayoutPanel TaskbarBackgroundRow()
     {
         var panel = new FlowLayoutPanel
@@ -583,5 +610,17 @@ internal sealed class SettingsForm : Form
                 color = Color.Firebrick;
                 return "注册失败：组合键已被其他程序占用，请换一个";
         }
+    }
+
+    /// <summary>按内容实际高度收窗口，屏幕放不下就交给 AutoScroll，保证最底部的设置也能改到。</summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        var work = Screen.PrimaryScreen!.WorkingArea;
+        int height = Math.Min(_table.Height + Padding.All + 10, work.Height - 40);
+        ClientSize = new Size(600, height);
+        Location = new Point(
+            work.Left + Math.Max(0, (work.Width - Width) / 2),
+            work.Top + Math.Max(0, (work.Height - Height) / 2));
     }
 }

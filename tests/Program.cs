@@ -116,6 +116,7 @@ internal static class Program
             "Taskbar line-range selection is inclusive and clamped");
         Check(TaskbarOverlay.SelectLines("only", 5, 9).Length == 0, "Out-of-range selection yields nothing");
         App.Config.Taskbar.Enabled = true;
+        App.Config.Taskbar.FontSize = 7; // 精确字号：小字号保证两行能放进任务栏高度
         App.Config.Taskbar.StartLine = 1;
         App.Config.Taskbar.EndLine = 2;
         App.ApplyTaskbarSettings();
@@ -132,6 +133,13 @@ internal static class Program
             "Taskbar overlay shows the configured line range");
         Check(overlay.Width >= overlay.Height && overlay.Width > 0 && overlay.Height > 0,
             "Taskbar overlay sizes itself to its content");
+        App.Config.Taskbar.Width = 120;
+        App.ApplyTaskbarSettings();
+        await Task.Delay(350);
+        uint overlayDpi = Field<uint>(overlay, "_dpi");
+        Check(overlay.Width == (int)Math.Round(120 * overlayDpi / 96.0),
+            "Fixed taskbar width setting is respected");
+        App.Config.Taskbar.Width = 0;
         App.Config.Taskbar.StartLine = 5;
         App.ApplyTaskbarSettings();
         await Task.Delay(350);

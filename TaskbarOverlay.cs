@@ -4,29 +4,28 @@ namespace GlassTXT;
 /// 任务栏待办浮层（TranslucentTB 风格）：把玻璃里选定的行以白色文字常驻任务栏。
 /// 不改动系统任务栏本身，而是创建 WS_EX_LAYERED 分层窗口后 SetParent 嵌入
 /// Shell_TrayWnd，用 32 位 ARGB 逐像素 alpha 画半透明底色与抗锯齿文字，
-/// 视觉上如同印在任务栏上；任务栏自动隐藏、全屏或被资源管理器重建时
-/// 随父窗口一并消失并自动恢复。
-/// 默认停靠位置会枚举任务栏上已有的子窗口（托盘、任务按钮、流量监控等
-/// 任务栏工具）做空隙检测，挑最靠近中间的空隙，避免遮住任何已有内容。
+/// 视觉上如同印在任务栏上；任务栏自动隐藏、全屏或隐藏时随父窗口一并消失。
+/// 启动时放在任务栏中间（可选托盘左侧/最左侧），位置可在任务栏上左右拖动微调。
+/// 不做轮询：仅在内容或设置变化时重绘；字号按设置精确渲染，
+/// 行数×字号超过任务栏高度时从起始行开始只显示放得下的行数。
 /// </summary>
 internal sealed class TaskbarOverlay : Form
 {
     private const int PadX = 14, PadY = 4;
-    private const int MinWidth = 48, MaxWidth = 760;
+    private const int MinWidth = 48, MaxWidth = 1500;
     private const int TrayGap = 8;          // 与托盘区的间距
     private const int TrayFallback = 200;   // 找不到 TrayNotifyWnd 时给托盘预留的宽度
-    private const float LineSpacing = 1.12f; // 行距（相对字体行高的压缩系数）
-    private const float MinFontPx = 9f;      // 字号下限（物理像素），保证可读
+    private const float LineSpacing = 1.2f; // 行距（相对字号的倍数）
+    private const int EmbedRetryLimit = 10; // 启动时任务栏未就绪的有限重试次数
 
-    private readonly Timer _poll = new() { Interval = 1000 };
     private readonly Timer _refresh = new() { Interval = 120 };
+    private readonly Timer _embedRetry = new() { Interval = 1000 };
+    private int _embedAttempts;
     private string[] _lines = Array.Empty<string>();
     private uint _dpi = 96;
-    private NativeMethods.WindowRect _lastTask;
-    private uint _lastDpi;
-    private int _curW, _curH, _curX, _curY;
+    private int _curW = 1, _curH = 1, _curX, _curY;
     private bool _dragging;
-    private int _dragAnchorX;
+    private int _dragStartScreenX;
     private int _dragOffsetStart;
 
     public TaskbarOverlay()
@@ -45,7 +44,7 @@ internal sealed class TaskbarOverlay : Form
         {
             App.Config.Taskbar.OffsetX = 0;
             App.SaveConfig();
-            RenderContent();
+            PositionNow();
         });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("隐藏任务栏显示", null, (_, _) =>
@@ -56,8 +55,8 @@ internal sealed class TaskbarOverlay : Form
         });
         ContextMenuStrip = menu;
 
-        _poll.Tick += (_, _) => PollTaskbar();
         _refresh.Tick += (_, _) => { _refresh.Stop(); RefreshNow(); };
+        _embedRetry.Tick += (_, _) => EmbedRetryTick();
     }
 
     /// <summary>当前渲染的行（供测试断言）。</summary>
@@ -91,16 +90,14 @@ internal sealed class TaskbarOverlay : Form
     {
         Show(); // 先建句柄
         SetClickThrough(App.Config.Taskbar.ClickThrough);
-        EmbedIntoTaskbar();
-        RefreshNow();
-        _poll.Stop();
-        _poll.Start();
+        _embedAttempts = 0;
+        TryEmbed(); // 失败时由 _embedRetry 有限次重试（开机自启可能早于资源管理器）
     }
 
     public void HideOverlay()
     {
-        _poll.Stop();
         _refresh.Stop();
+        _embedRetry.Stop();
         Hide();
     }
 
@@ -123,13 +120,61 @@ internal sealed class TaskbarOverlay : Form
     {
         if (disposing)
         {
-            _poll.Dispose();
             _refresh.Dispose();
+            _embedRetry.Dispose();
             // 解除嵌入再销毁，避免销毁时仍挂在任务栏下
             if (IsHandleCreated && NativeMethods.GetParent(Handle) != IntPtr.Zero)
                 NativeMethods.SetParent(Handle, IntPtr.Zero);
         }
         base.Dispose(disposing);
+    }
+
+    // ---- 嵌入 ----
+
+    /// <summary>嵌入任务栏；任务栏还没起来时安排有限次重试，成功后立即渲染。</summary>
+    private void TryEmbed()
+    {
+        if (IsDisposed) return;
+        if (EmbedIntoTaskbar())
+        {
+            _embedRetry.Stop();
+            RefreshNow();
+            return;
+        }
+        if (_embedAttempts++ < EmbedRetryLimit) _embedRetry.Start();
+    }
+
+    private void EmbedRetryTick()
+    {
+        if (IsDisposed || !App.Config.Taskbar.Enabled) { _embedRetry.Stop(); return; }
+        if (EmbedIntoTaskbar())
+        {
+            _embedRetry.Stop();
+            RefreshNow();
+        }
+        else if (_embedAttempts++ >= EmbedRetryLimit)
+        {
+            _embedRetry.Stop(); // 放弃，等下次设置或内容变化触发
+        }
+    }
+
+    private bool EmbedIntoTaskbar()
+    {
+        if (IsDisposed || !IsHandleCreated) return false;
+        IntPtr tray = NativeMethods.FindWindow("Shell_TrayWnd", null);
+        if (tray == IntPtr.Zero) return false;
+        IntPtr hwnd = Handle;
+        if (NativeMethods.GetParent(hwnd) == tray)
+        {
+            _dpi = NativeMethods.DpiForWindow(tray);
+            return true;
+        }
+        long style = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_STYLE).ToInt64();
+        NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_STYLE,
+            new IntPtr((style & ~NativeMethods.WS_POPUP) | NativeMethods.WS_CHILD));
+        NativeMethods.SetParent(hwnd, tray);
+        _dpi = NativeMethods.DpiForWindow(tray);
+        return true;
     }
 
     // ---- 内容 ----
@@ -162,51 +207,6 @@ internal sealed class TaskbarOverlay : Form
         RenderContent();
     }
 
-    // ---- 嵌入与跟随 ----
-
-    private void EmbedIntoTaskbar()
-    {
-        if (IsDisposed) return;
-        IntPtr tray = NativeMethods.FindWindow("Shell_TrayWnd", null);
-        if (tray == IntPtr.Zero) return; // 资源管理器还没起来，交给轮询重试
-        IntPtr hwnd = Handle;
-        if (NativeMethods.GetParent(hwnd) == tray)
-        {
-            _dpi = NativeMethods.DpiForWindow(tray);
-            return;
-        }
-        long style = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_STYLE).ToInt64();
-        NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_STYLE,
-            new IntPtr((style & ~NativeMethods.WS_POPUP) | NativeMethods.WS_CHILD));
-        NativeMethods.SetParent(hwnd, tray);
-        _dpi = NativeMethods.DpiForWindow(tray);
-    }
-
-    /// <summary>轮询：任务栏重建（重启资源管理器）、移动、DPI 变化时重新嵌入并重绘；
-    /// 任务栏上其他内容（开关应用、任务栏工具变化）改变布局时仅重新挑空位。</summary>
-    private void PollTaskbar()
-    {
-        if (IsDisposed) { _poll.Stop(); return; }
-        if (!App.Config.Taskbar.Enabled) { Hide(); return; }
-        EmbedIntoTaskbar();
-        if (!IsHandleCreated || !Visible) return;
-        IntPtr parent = NativeMethods.GetParent(Handle);
-        if (parent == IntPtr.Zero) return;
-        if (!NativeMethods.GetWindowRect(parent, out var rect)) return;
-        uint dpi = NativeMethods.DpiForWindow(parent);
-        bool rectChanged = rect.Left != _lastTask.Left || rect.Top != _lastTask.Top
-            || rect.Right != _lastTask.Right || rect.Bottom != _lastTask.Bottom || dpi != _lastDpi;
-        _lastTask = rect;
-        _lastDpi = dpi;
-        if (rectChanged)
-        {
-            _dpi = dpi;
-            RenderContent();
-            return;
-        }
-        Reposition(parent, rect);
-    }
-
     // ---- 测量 / 渲染 ----
 
     private void RenderContent()
@@ -215,7 +215,7 @@ internal sealed class TaskbarOverlay : Form
         if (_lines.Length == 0) { Hide(); return; }
         if (!IsHandleCreated) return;
         IntPtr parent = NativeMethods.GetParent(Handle);
-        if (parent == IntPtr.Zero) return; // 还没嵌入任务栏，等轮询
+        if (parent == IntPtr.Zero) return; // 还没嵌入任务栏，等重试
         if (!NativeMethods.GetWindowRect(parent, out var task)) return;
         int taskW = task.Right - task.Left, taskH = task.Bottom - task.Top;
         if (taskW <= 0 || taskH <= 0) return;
@@ -223,82 +223,77 @@ internal sealed class TaskbarOverlay : Form
         double scale = _dpi / 96.0;
         int padX = (int)Math.Round(PadX * scale);
         int padY = (int)Math.Round(PadY * scale);
-        int availH = Math.Max(10, taskH - padY * 2);
-
         using var probe = new Bitmap(1, 1);
         using var g = Graphics.FromImage(probe);
         using var fmt = TextFormat();
 
-        // 字号自适应：设置值是上限；放不下时缩小到可读下限，
-        // 仍放不下就从起始行开始只显示放得下的行数——绝不把字压到看不清。
-        var font = CreateFont(Math.Max(8f, App.Config.Taskbar.FontSize * _dpi / 72f));
-        float lineH = font.GetHeight(g) * LineSpacing;
-        try
-        {
-            if (_lines.Length * lineH > availH)
-            {
-                float lhMin = LineHeightAt(g, MinFontPx);
-                int maxLines = Math.Max(1, (int)(availH / lhMin));
-                if (_lines.Length > maxLines) _lines = _lines[..maxLines];
-                float px = Math.Max(MinFontPx,
-                    Math.Max(8f, App.Config.Taskbar.FontSize * _dpi / 72f) * availH / (_lines.Length * lineH));
-                font.Dispose();
-                font = CreateFont(px);
-                lineH = font.GetHeight(g) * LineSpacing;
-            }
+        // 字号按设置精确渲染，不自动缩放；
+        // 行数×行高超过任务栏高度时，从起始行开始只显示放得下的行数。
+        using var font = CreateFont();
+        float lineH = App.Config.Taskbar.FontSize * _dpi / 72f * LineSpacing;
+        int availH = Math.Max((int)Math.Ceiling(lineH), taskH - padY * 2);
+        int fitLines = Math.Max(1, (int)(availH / lineH));
+        if (_lines.Length > fitLines) _lines = _lines[..fitLines];
 
-            var widths = new float[_lines.Length];
-            for (int i = 0; i < _lines.Length; i++)
-                widths[i] = g.MeasureString(_lines[i], font, int.MaxValue, fmt).Width;
-            int textW = (int)Math.Ceiling(widths.Max());
-            int w = (int)Math.Clamp(
+        var widths = new float[_lines.Length];
+        for (int i = 0; i < _lines.Length; i++)
+            widths[i] = g.MeasureString(_lines[i], font, int.MaxValue, fmt).Width;
+        int textW = (int)Math.Ceiling(widths.Max());
+        int gap = (int)Math.Round(TrayGap * scale);
+        int widthSetting = Math.Clamp(App.Config.Taskbar.Width, 0, 2000);
+        int w = widthSetting > 0
+            ? (int)Math.Clamp(Math.Round(widthSetting * scale),
+                Math.Max((int)Math.Round(MinWidth * scale), 1),
+                Math.Min((long)Math.Round(MaxWidth * scale), (long)taskW - gap * 2))
+            : (int)Math.Clamp(
                 textW + padX * 2L,
                 Math.Max((int)Math.Round(MinWidth * scale), 1),
-                Math.Min((long)Math.Round(MaxWidth * scale), (long)taskW - TrayGap * 2));
-            int h = Math.Min(taskH, (int)Math.Ceiling(_lines.Length * lineH) + padY * 2);
-            float maxTextWidth = w - padX * 2;
+                Math.Min((long)Math.Round(MaxWidth * scale), (long)taskW - gap * 2));
+        int h = Math.Min(taskH, (int)Math.Ceiling(_lines.Length * lineH) + padY * 2);
+        float maxTextWidth = w - padX * 2;
 
-            using var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-            using (var bg = Graphics.FromImage(bmp))
-            {
-                bg.SmoothingMode = SmoothingMode.AntiAlias;
-                bg.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-                var ts = App.Config.Taskbar;
-                var backColor = ColorUtil.Parse(ts.BackgroundColor, Color.FromArgb(31, 31, 31));
-                int alpha = Math.Clamp(ts.BackgroundOpacityPercent, 0, 100) * 255 / 100;
+        using var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using (var bg = Graphics.FromImage(bmp))
+        {
+            bg.SmoothingMode = SmoothingMode.AntiAlias;
+            bg.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            var ts = App.Config.Taskbar;
+            var backColor = ColorUtil.Parse(ts.BackgroundColor, Color.FromArgb(31, 31, 31));
+            int alpha = Math.Clamp(ts.BackgroundOpacityPercent, 0, 100) * 255 / 100;
+            if (alpha > 0)
                 using (var brush = new SolidBrush(Color.FromArgb(alpha, backColor)))
                     bg.FillRectangle(brush, 0, 0, w, h);
-                var textColor = ColorUtil.Parse(ts.TextColor, Color.White);
-                int textAlpha = Math.Clamp(ts.TextOpacityPercent, 0, 100) * 255 / 100;
-                using var textBrush = new SolidBrush(Color.FromArgb(textAlpha, textColor));
-                float fy = (h - _lines.Length * lineH) / 2f;
-                for (int i = 0; i < _lines.Length; i++)
-                {
-                    string line = Fit(_lines[i], bg, font, maxTextWidth, fmt);
-                    bg.DrawString(line, font, textBrush,
-                        new RectangleF(padX, fy, maxTextWidth, lineH), fmt);
-                    fy += lineH;
-                }
+            var textColor = ColorUtil.Parse(ts.TextColor, Color.White);
+            int textAlpha = Math.Clamp(ts.TextOpacityPercent, 0, 100) * 255 / 100;
+            using var textBrush = new SolidBrush(Color.FromArgb(textAlpha, textColor));
+            float fy = (h - _lines.Length * lineH) / 2f;
+            for (int i = 0; i < _lines.Length; i++)
+            {
+                string line = Fit(_lines[i], bg, font, maxTextWidth, fmt);
+                bg.DrawString(line, font, textBrush,
+                    new RectangleF(padX, fy, maxTextWidth, lineH), fmt);
+                fy += lineH;
             }
+        }
 
-            var (x, y) = ComputePosition(parent, task, taskW, taskH, w, h);
-            _curW = w;
-            _curH = h;
-            _curX = x;
-            _curY = y;
-            Present(bmp, x, y);
-            if (!Visible) Show();
-        }
-        finally
-        {
-            font.Dispose();
-        }
+        var (x, y) = ComputePosition(parent, taskW, taskH, w, h);
+        _curW = w;
+        _curH = h;
+        _curX = x;
+        _curY = y;
+        Present(bmp, x, y);
+        UpdateBounds(x, y, w, h); // UpdateLayeredWindow 直接改原生窗口，同步托管缓存
+        if (!Visible) Show();
     }
 
-    private float LineHeightAt(Graphics g, float px)
+    private Font CreateFont()
     {
-        using var f = CreateFont(px);
-        return f.GetHeight(g) * LineSpacing;
+        float px = Math.Max(6f, App.Config.Taskbar.FontSize * _dpi / 72f);
+        string name = App.Config.Appearance.FontName;
+        FontFamily family;
+        try { family = new FontFamily(string.IsNullOrWhiteSpace(name) ? "微软雅黑" : name); }
+        catch { family = FontFamily.GenericSansSerif; }
+        return new Font(family, px, GraphicsUnit.Pixel);
     }
 
     private static StringFormat TextFormat() => new(StringFormatFlags.NoWrap)
@@ -306,15 +301,6 @@ internal sealed class TaskbarOverlay : Form
         Alignment = StringAlignment.Near,
         LineAlignment = StringAlignment.Center,
     };
-
-    private Font CreateFont(float px)
-    {
-        string name = App.Config.Appearance.FontName;
-        FontFamily family;
-        try { family = new FontFamily(string.IsNullOrWhiteSpace(name) ? "微软雅黑" : name); }
-        catch { family = FontFamily.GenericSansSerif; }
-        return new Font(family, px, GraphicsUnit.Pixel);
-    }
 
     /// <summary>超宽的行截断加省略号。</summary>
     private static string Fit(string line, Graphics g, Font font, float maxW, StringFormat fmt)
@@ -334,8 +320,7 @@ internal sealed class TaskbarOverlay : Form
 
     // ---- 定位 ----
 
-    private (int X, int Y) ComputePosition(IntPtr parent, NativeMethods.WindowRect task,
-        int taskW, int taskH, int w, int h)
+    private (int X, int Y) ComputePosition(IntPtr parent, int taskW, int taskH, int w, int h)
     {
         double scale = _dpi / 96.0;
         int margin = (int)Math.Round(4 * scale);
@@ -344,7 +329,7 @@ internal sealed class TaskbarOverlay : Form
         {
             "tray" => TrayLeftClient(parent, taskW) - w - gap,
             "left" => margin,
-            _ => FindFreeCenterX(parent, taskW, w, margin), // 默认：避开任务栏上已有内容，靠近中间
+            _ => (taskW - w) / 2, // 默认：任务栏中间
         };
         int x = Math.Clamp(baseX - Math.Clamp(App.Config.Taskbar.OffsetX, -4000, 8000),
             margin, Math.Max(margin, taskW - w - margin));
@@ -366,75 +351,20 @@ internal sealed class TaskbarOverlay : Form
         return taskW - (int)Math.Round(TrayFallback * _dpi / 96.0);
     }
 
-    /// <summary>
-    /// 枚举任务栏上所有可见子窗口（任务按钮区、托盘、TrafficMonitor 等任务栏工具）
-    /// 得到已占用区间，在能容纳浮层的空隙里挑中点最靠近任务栏中心的那个；
-    /// 找不到空隙时回退为正中（用户仍可拖动或改设置）。
-    /// </summary>
-    private int FindFreeCenterX(IntPtr tray, int taskW, int w, int margin)
+    /// <summary>只挪位置不重绘（拖动、回正时用）。</summary>
+    private void PositionNow()
     {
-        var ranges = new List<(int L, int R)>();
-        NativeMethods.EnumChildWindows(tray, (hwnd, _) =>
-        {
-            if (hwnd == Handle || !NativeMethods.IsWindowVisible(hwnd)) return true;
-            if (!NativeMethods.GetWindowRect(hwnd, out var r)) return true;
-            var l = new Point(r.Left, 0);
-            var rt = new Point(r.Right, 0);
-            NativeMethods.ScreenToClient(tray, ref l);
-            NativeMethods.ScreenToClient(tray, ref rt);
-            int left = Math.Max(0, l.X), right = Math.Min(taskW, rt.X);
-            if (right - left > 0) ranges.Add((left, right));
-            return true;
-        }, IntPtr.Zero);
-
-        ranges.Sort((a, b) => a.L.CompareTo(b.L));
-        var merged = new List<(int L, int R)>();
-        foreach (var (l, r) in ranges)
-        {
-            if (merged.Count > 0 && l <= merged[^1].R)
-                merged[^1] = (merged[^1].L, Math.Max(merged[^1].R, r));
-            else
-                merged.Add((l, r));
-        }
-
-        var gaps = new List<(int L, int R)>();
-        int cursor = 0;
-        foreach (var (l, r) in merged)
-        {
-            if (l - cursor > 0) gaps.Add((cursor, l));
-            cursor = Math.Max(cursor, r);
-        }
-        if (taskW - cursor > 0) gaps.Add((cursor, taskW));
-
-        int bestX = taskW / 2 - w / 2; // 没有可用空隙时回退正中
-        long bestDist = long.MaxValue;
-        foreach (var (gl, gr) in gaps)
-        {
-            int lo = gl + margin, hi = gr - margin;
-            if (hi - lo < w) continue;
-            int x = Math.Clamp((gl + gr) / 2 - w / 2, lo, hi);
-            long dist = Math.Abs((long)x + w / 2 - taskW / 2);
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestX = x;
-            }
-        }
-        return bestX;
-    }
-
-    /// <summary>内容与尺寸不变、但任务栏布局变化时，只挪位置不重绘。</summary>
-    private void Reposition(IntPtr parent, NativeMethods.WindowRect task)
-    {
-        if (_curW <= 0 || _curH <= 0) return;
+        if (IsDisposed || !IsHandleCreated) return;
+        IntPtr parent = NativeMethods.GetParent(Handle);
+        if (parent == IntPtr.Zero || !NativeMethods.GetWindowRect(parent, out var task)) return;
         int taskW = task.Right - task.Left, taskH = task.Bottom - task.Top;
         if (taskW <= 0 || taskH <= 0) return;
-        var (x, y) = ComputePosition(parent, task, taskW, taskH, _curW, _curH);
-        if (x == _curX && y == _curY) return;
+        var (x, y) = ComputePosition(parent, taskW, taskH, _curW, _curH);
         _curX = x;
         _curY = y;
         NativeMethods.SetWindowPos(Handle, IntPtr.Zero, x, y, 0, 0,
             0x0001 /* SWP_NOSIZE */ | NativeMethods.SWP_NOACTIVATE);
+        UpdateBounds(x, y, _curW, _curH);
     }
 
     /// <summary>逐像素 alpha 上屏；x/y 为相对任务栏客户区的坐标。</summary>
@@ -478,7 +408,7 @@ internal sealed class TaskbarOverlay : Form
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left || App.Config.Taskbar.ClickThrough) return;
         _dragging = true;
-        _dragAnchorX = Cursor.Position.X;
+        _dragStartScreenX = Cursor.Position.X;
         _dragOffsetStart = App.Config.Taskbar.OffsetX;
         Capture = true;
     }
@@ -487,11 +417,9 @@ internal sealed class TaskbarOverlay : Form
     {
         base.OnMouseMove(e);
         if (!_dragging) return;
-        int dx = _dragAnchorX - Cursor.Position.X; // 向左拖 = 离默认停靠点更远
-        App.Config.Taskbar.OffsetX = Math.Clamp(_dragOffsetStart + dx, -4000, 8000);
-        IntPtr parent = NativeMethods.GetParent(Handle);
-        if (parent != IntPtr.Zero && NativeMethods.GetWindowRect(parent, out var task))
-            Reposition(parent, task);
+        int leftDelta = _dragStartScreenX - Cursor.Position.X; // 向左拖 = 偏移增大
+        App.Config.Taskbar.OffsetX = Math.Clamp(_dragOffsetStart + leftDelta, -4000, 8000);
+        PositionNow();
     }
 
     protected override void OnMouseUp(MouseEventArgs e)

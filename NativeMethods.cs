@@ -65,14 +65,6 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr GetParent(IntPtr hwnd);
 
-    [DllImport("user32.dll")]
-    public static extern bool IsWindowVisible(IntPtr hwnd);
-
-    public delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr lParam);
-
     /// <summary>取窗口所在显示器的 DPI；取不到时回退 96。</summary>
     public static uint DpiForWindow(IntPtr hwnd)
     {
